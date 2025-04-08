@@ -358,6 +358,7 @@ def _build_sandbox_image(
         names.append(f'{runtime_image_repo}:{versioned_tag}')
     names = [name for name in names if not runtime_builder.image_exists(name, False)]
 
+    print(f'***Build_sandbox_image: folder: {build_folder}, tags: {names}, platform: {platform}, extra_build_args: {extra_build_args}')
     image_name = runtime_builder.build(
         path=str(build_folder),
         tags=names,

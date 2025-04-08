@@ -187,7 +187,12 @@ def get_config(
     sandbox_config.remote_runtime_resource_factor = get_instance_resource_factor(
         dataset_name=metadata.dataset,
         instance_id=instance['instance_id'],
-    )
+    ) 
+    # in get_instance_resource_factor, get_resource_mapping(dataset_name) is called
+    # if not os.path.exists(file_path):
+    #        logger.info(f'Resource mapping for {dataset_name} not found.')
+    # ***file_path:  OpenHands/evaluation/benchmarks/swe_bench/resource/princeton-nlp__SWE-bench_Verified-test.json
+
 
     config = AppConfig(
         default_agent=metadata.agent_class,
@@ -490,7 +495,11 @@ def process_instance(
     reset_logger: bool = True,
     runtime_failure_count: int = 0,
 ) -> EvalOutput:
+    print(f'*** Processing instance {instance}...')
+
     config = get_config(instance, metadata)
+
+    print("*** Got config: ", config)
 
     # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
     if reset_logger:
@@ -515,6 +524,7 @@ def process_instance(
         config.sandbox.remote_runtime_resource_factor
     )
 
+    print(f'*** Creating runtime....')
     runtime = create_runtime(config)
     call_async_from_sync(runtime.connect)
 
