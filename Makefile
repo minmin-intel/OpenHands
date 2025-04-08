@@ -29,6 +29,11 @@ build:
 	@$(MAKE) -s build-frontend
 	@echo "$(GREEN)Build completed successfully.$(RESET)"
 
+uninstall-hooks:
+	@echo "$(YELLOW)Uninstalling pre-commit hooks...$(RESET)"
+	@$(MAKE) -s uninstall-pre-commit-hooks
+	@echo "$(GREEN)Uninstallation completed successfully.$(RESET)"
+
 check-dependencies:
 	@echo "$(YELLOW)Checking dependencies...$(RESET)"
 	@$(MAKE) -s check-system
@@ -163,6 +168,13 @@ install-pre-commit-hooks:
 	@git config --unset-all core.hooksPath || true
 	@poetry run pre-commit install --config $(PRE_COMMIT_CONFIG_PATH)
 	@echo "$(GREEN)Pre-commit hooks installed successfully.$(RESET)"
+
+uninstall-pre-commit-hooks:
+	@echo "$(YELLOW)UnInstalling pre-commit hooks...$(RESET)"
+	@git config --unset-all core.hooksPath || true
+	@pre-commit uninstall --config $(PRE_COMMIT_CONFIG_PATH)
+	@echo "$(GREEN)Pre-commit hooks uninstalled successfully.$(RESET)"
+
 
 lint-backend:
 	@echo "$(YELLOW)Running linters...$(RESET)"

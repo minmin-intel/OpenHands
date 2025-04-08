@@ -126,8 +126,8 @@ class DockerRuntimeBuilder(RuntimeBuilder):
         target_image_repo, target_image_source_tag = target_image_hash_name.split(':')
         target_image_tag = tags[1].split(':')[1] if len(tags) > 1 else None
 
-        http_proxy = os.environ.get('http_proxy', "")
-        https_proxy = os.environ.get('https_proxy', "")
+        http_proxy = os.environ.get('http_proxy', '')
+        https_proxy = os.environ.get('https_proxy', '')
         buildx_cmd = [
             'docker' if not self.is_podman else 'podman',
             'buildx',
