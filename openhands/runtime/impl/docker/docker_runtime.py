@@ -336,8 +336,12 @@ class DockerRuntime(ActionExecutionClient):
                 'APP_PORT_1': str(self._app_ports[0]),
                 'APP_PORT_2': str(self._app_ports[1]),
                 'PIP_BREAK_SYSTEM_PACKAGES': '1',
+                'http_proxy': os.environ.get('http_proxy', ''),
+                'https_proxy': os.environ.get('https_proxy', ''),
+                'no_proxy': os.environ.get('no_proxy', ''),
             }
         )
+        print("***Environment variables for container:", environment)
         if self.config.debug or DEBUG:
             environment['DEBUG'] = 'true'
         # also update with runtime_startup_env_vars
@@ -360,6 +364,13 @@ class DockerRuntime(ActionExecutionClient):
         )
 
         command = self.get_action_execution_server_startup_command()
+        print(
+            f'Command to run in container: {command}'
+        )
+
+        print(
+            f'Starting container with name: {self.container_name},\nimage: {self.runtime_container_image},\ncommand: {command},\nnetwork_mode: {network_mode},\n ports: {port_mapping},\n environment: {environment},\n volumes: {volumes}, \nkwargs: {self.config.sandbox.docker_runtime_kwargs}'
+        )
 
         try:
             if self.runtime_container_image is None:
