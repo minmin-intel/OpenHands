@@ -98,11 +98,15 @@ async def run_controller(
     sid = sid or generate_sid(config)
 
     if agent is None:
+        print("No agent provided, creating a new one")
         agent = create_agent(config)
+    else:
+        print("Using provided agent")
 
     # when the runtime is created, it will be connected and clone the selected repository
     repo_directory = None
     if runtime is None:
+        print("No runtime provided, creating a new one")
         runtime = create_runtime(
             config,
             sid=sid,
@@ -118,10 +122,14 @@ async def run_controller(
                 runtime,
                 selected_repository=config.sandbox.selected_repo,
             )
+    else:
+        print("Using provided runtime")
+
 
     event_stream = runtime.event_stream
 
     # when memory is created, it will load the microagents from the selected repository
+    print("Setting up memory")
     if memory is None:
         memory = create_memory(
             runtime=runtime,
@@ -134,6 +142,7 @@ async def run_controller(
 
     # Add MCP tools to the agent
     if agent.config.enable_mcp:
+        print("Adding MCP tools to the agent")
         # Add OpenHands' MCP server by default
         _, openhands_mcp_stdio_servers = (
             OpenHandsMCPConfigImpl.create_default_mcp_server_config(
@@ -152,6 +161,7 @@ async def run_controller(
             config.replay_trajectory_path
         )
 
+    print('*** Creating controller ***')
     controller, initial_state = create_controller(
         agent, runtime, config, replay_events=replay_events
     )

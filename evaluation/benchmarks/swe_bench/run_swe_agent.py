@@ -61,6 +61,9 @@ from openhands.runtime.base import Runtime
 from openhands.utils.async_utils import call_async_from_sync
 from openhands.utils.shutdown_listener import sleep_if_should_continue
 
+from agent_docker.server import Agent as BenchMarkAgent
+from agent_docker.server import UserRequest
+
 USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
 RUN_WITH_BROWSING = os.environ.get('RUN_WITH_BROWSING', 'false').lower() == 'true'
 ENABLE_LLM_EDITOR = os.environ.get('ENABLE_LLM_EDITOR', 'false').lower() == 'true'
@@ -195,6 +198,25 @@ def get_instance_docker_image(
         return (docker_image_prefix.rstrip('/') + '/' + image_name).lower()
 
 
+def get_base_docker_image(
+    instance: pd.Series,
+) -> OpenHandsConfig:
+    # We use a different instance image for the each instance of swe-bench eval
+    use_swebench_official_image = DATASET_TYPE != 'SWE-Gym'
+
+    base_container_image = get_instance_docker_image(
+        instance['instance_id'],
+        swebench_official_image=use_swebench_official_image,
+    )
+    logger.info(
+        f'Using instance container image: {base_container_image}. '
+        f'Please make sure this image exists. '
+        f'Submit an issue on https://github.com/All-Hands-AI/OpenHands if you run into any issues.'
+    )
+
+    return base_container_image
+
+
 def get_config(
     instance: pd.Series,
     metadata: EvalMetadata,
@@ -252,7 +274,6 @@ def get_config(
     )
     config.set_agent_config(agent_config)
     return config
-
 
 def initialize_runtime(
     runtime: Runtime,
@@ -596,7 +617,7 @@ def process_instance(
     reset_logger: bool = True,
     runtime_failure_count: int = 0,
 ) -> EvalOutput:
-    config = get_config(instance, metadata)
+    # config = get_config(instance, metadata)
 
     # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
     if reset_logger:
@@ -606,104 +627,50 @@ def process_instance(
         logger.info(f'Starting evaluation for instance {instance.instance_id}.')
 
     # Increase resource_factor with increasing attempt_id
-    if runtime_failure_count > 0:
-        config.sandbox.remote_runtime_resource_factor = min(
-            config.sandbox.remote_runtime_resource_factor * (2**runtime_failure_count),
-            8,
-        )
-        logger.warning(
-            f'This is the {runtime_failure_count + 1}th attempt for instance {instance.instance_id}, setting resource factor to {config.sandbox.remote_runtime_resource_factor}'
-        )
+    # if runtime_failure_count > 0:
+    #     config.sandbox.remote_runtime_resource_factor = min(
+    #         config.sandbox.remote_runtime_resource_factor * (2**runtime_failure_count),
+    #         8,
+    #     )
+    #     logger.warning(
+    #         f'This is the {runtime_failure_count + 1}th attempt for instance {instance.instance_id}, setting resource factor to {config.sandbox.remote_runtime_resource_factor}'
+    #     )
 
-    metadata = copy.deepcopy(metadata)
-    metadata.details['runtime_failure_count'] = runtime_failure_count
-    metadata.details['remote_runtime_resource_factor'] = (
-        config.sandbox.remote_runtime_resource_factor
+    # metadata = copy.deepcopy(metadata)
+    # metadata.details['runtime_failure_count'] = runtime_failure_count
+    # metadata.details['remote_runtime_resource_factor'] = (
+    #     config.sandbox.remote_runtime_resource_factor
+    # )
+
+    # # change file_storage_path
+    # config.file_store_path = "/localdisk/minminho/openhands/trajectories/"
+
+    # try:
+    #     print(f"Config: {config.to_dict()}")
+    # except:
+    #     print(f"Config:{config}")
+
+    instance_base_image = get_base_docker_image(instance)
+    logger.info(
+        f'Using base image for instance {instance.instance_id}: {instance_base_image}'
     )
-
-    # change file_storage_path
-    config.file_store_path = "/localdisk/minminho/openhands/trajectories/"
-
-    try:
-        print(f"Config: {config.to_dict()}")
-    except:
-        print(f"Config:{config}")
-
-    runtime = create_runtime(config)
-    call_async_from_sync(runtime.connect)
+    os.environ["sandbox_base_image"] = instance_base_image
+    agent= BenchMarkAgent()
 
     try:
-        initialize_runtime(runtime, instance, metadata)
+        initialize_runtime(agent.runtime, instance, metadata)
 
         message_action = get_instruction(instance, metadata)
-        print(f"Message Action: {message_action}")
+        print(f"Message: {message_action.content}")
+        request = UserRequest(message=message_action.content)
 
         # Here's how you can run the agent (similar to the `main` function) and get the final task state
-        state: State | None = asyncio.run(
-            run_controller(
-                config=config,
-                initial_user_action=message_action,
-                runtime=runtime,
-                fake_user_response_fn=AGENT_CLS_TO_FAKE_USER_RESPONSE_FN[
-                    metadata.agent_class
-                ],
-            )
-        )
-
-        # if fatal error, throw EvalError to trigger re-run
-        if is_fatal_evaluation_error(state.last_error):
-            raise EvalException('Fatal error detected: ' + state.last_error)
-
-        # # ======= THIS IS SWE-Bench specific =======
-        # # Get git patch
-        # if DATASET_TYPE == 'SWE-bench-Live':
-        #     from evaluation.benchmarks.swe_bench.live_utils import (
-        #         complete_runtime as complete_runtime_fn,
-        #     )
-        # else:
-        #     complete_runtime_fn = complete_runtime
-        # return_val = complete_runtime_fn(runtime, instance)
-        # git_patch = return_val['git_patch']
-        # logger.info(
-        #     f'Got git diff for instance {instance.instance_id}:\n--------\n{git_patch}\n--------'
-        # )
-    finally:
-        runtime.close()
-    # ==========================================
-
-    # # ======= Attempt to evaluate the agent's edits =======
-    # # we use eval_infer.sh to evaluate the agent's edits, not here
-    # # because the agent may alter the environment / testcases
-    # test_result = {
-    #     'git_patch': git_patch,
-    # }
-
-    # # If you are working on some simpler benchmark that only evaluates the final model output (e.g., in a MessageAction)
-    # # You can simply get the LAST `MessageAction` from the returned `state.history` and parse it for evaluation.
-    # if state is None:
-    #     raise ValueError('State should not be None.')
-
-    # # NOTE: this is NO LONGER the event stream, but an agent history that includes delegate agent's events
-    # histories = [event_to_dict(event) for event in state.history]
-    # metrics = get_metrics(state)
-
-    # # Save the output
-    # instruction = message_action.content
-    # if message_action.image_urls:
-    #     instruction += (
-    #         '\n\n<image_urls>' + '\n'.join(message_action.image_urls) + '</image_urls>'
-    #     )
-    # output = EvalOutput(
-    #     instance_id=instance.instance_id,
-    #     instruction=instruction,
-    #     instance=instance.to_dict(),  # SWE Bench specific
-    #     test_result=test_result,
-    #     metadata=metadata,
-    #     history=histories,
-    #     metrics=metrics,
-    #     error=state.last_error if state and state.last_error else None,
-    # )
-    # return output
+        output = agent.run(request)
+    except Exception as e:
+        output = e
+        logger.error(f'Error during agent run: {e}')
+        
+    return output
 
 
 def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
@@ -834,148 +801,31 @@ if __name__ == '__main__':
         condenser_config=condenser_config,
     )
 
+ 
     output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
     print(f'### OUTPUT FILE: {output_file} ###')
+    # prepare_dataset will lookup instances that are already run
+    instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
 
-    # Run evaluation in iterative mode:
-    # If a rollout fails to output AgentFinishAction, we will try again until it succeeds OR total 3 attempts have been made.
-    ITERATIVE_EVAL_MODE = (
-        os.environ.get('ITERATIVE_EVAL_MODE', 'false').lower() == 'true'
-    )
-    ITERATIVE_EVAL_MODE_MAX_ATTEMPTS = int(
-        os.environ.get('ITERATIVE_EVAL_MODE_MAX_ATTEMPTS', '3')
-    )
-
-    if not ITERATIVE_EVAL_MODE:
-        # load the dataset
-        instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
-        if len(instances) > 0 and not isinstance(
-            instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str
-        ):
-            for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
-                instances[col] = instances[col].apply(lambda x: str(x))
-
-        run_evaluation(
-            instances,
-            metadata,
-            output_file,
-            args.eval_num_workers,
-            process_instance,
-            timeout_seconds=8
-            * 60
-            * 60,  # 8 hour PER instance should be more than enough
-            max_retries=5,
-        )
-    else:
-        critic = AgentFinishedCritic()
-
-        def get_cur_output_file_path(attempt: int) -> str:
-            return (
-                f'{output_file.removesuffix(".jsonl")}.critic_attempt_{attempt}.jsonl'
-            )
-
-        eval_ids = None
-        for attempt in range(1, ITERATIVE_EVAL_MODE_MAX_ATTEMPTS + 1):
-            cur_output_file = get_cur_output_file_path(attempt)
-            logger.info(
-                f'Running evaluation with critic {critic.__class__.__name__} for attempt {attempt} of {ITERATIVE_EVAL_MODE_MAX_ATTEMPTS}.'
-            )
-
-            # For deterministic eval, we set temperature to 0.1 for (>1) attempt
-            # so hopefully we get slightly different results
-            if attempt > 1 and metadata.llm_config.temperature == 0:
-                logger.info(
-                    f'Detected temperature is 0 for (>1) attempt {attempt}. Setting temperature to 0.1...'
-                )
-                metadata.llm_config.temperature = 0.1
-
-            # Load instances - at first attempt, we evaluate all instances
-            # On subsequent attempts, we only evaluate the instances that failed the previous attempt determined by critic
-            instances = prepare_dataset(
-                swe_bench_tests, cur_output_file, args.eval_n_limit, eval_ids=eval_ids
-            )
-            if len(instances) > 0 and not isinstance(
-                instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str
-            ):
-                for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
-                    instances[col] = instances[col].apply(lambda x: str(x))
-
-            # Run evaluation - but save them to cur_output_file
-            logger.info(
-                f'Evaluating {len(instances)} instances for attempt {attempt}...'
-            )
-            run_evaluation(
-                instances,
+    # run process_instance on each instance
+    # NOTE: this is a blocking call, so it will run sequentially
+    # If you want to run it in parallel, you can use multiprocessing or threading
+    for _, instance in instances.iterrows():
+        try:
+            output = process_instance(
+                instance,
                 metadata,
-                cur_output_file,
-                args.eval_num_workers,
-                process_instance,
-                timeout_seconds=8
-                * 60
-                * 60,  # 8 hour PER instance should be more than enough
-                max_retries=5,
+                reset_logger=True,  # reset logger for each instance
             )
+            # # Save the output to the output file
+            # with open(output_file, 'a') as f:
+            #     f.write(json.dumps(output.to_dict()) + '\n')
+        except EvalException as e:
+            logger.error(f'Error processing instance {instance.instance_id}: {e}')
+            continue
 
-            # When eval is done, we update eval_ids to the instances that failed the current attempt
-            instances_failed = []
-            logger.info(
-                f'Use critic {critic.__class__.__name__} to check {len(instances)} instances for attempt {attempt}...'
-            )
-            with open(cur_output_file, 'r') as f:
-                for line in f:
-                    instance = json.loads(line)
-                    try:
-                        history = [
-                            event_from_dict(event) for event in instance['history']
-                        ]
-                        critic_result = critic.evaluate(
-                            history, instance['test_result'].get('git_patch', '')
-                        )
-                        if not critic_result.success:
-                            instances_failed.append(instance['instance_id'])
-                    except Exception as e:
-                        logger.error(
-                            f'Error loading history for instance {instance["instance_id"]}: {e}'
-                        )
-                        instances_failed.append(instance['instance_id'])
-            logger.info(
-                f'{len(instances_failed)} instances failed the current attempt {attempt}: {instances_failed}'
-            )
-            eval_ids = instances_failed
 
-            # If no instances failed, we break
-            if len(instances_failed) == 0:
-                break
 
-        # Then we should aggregate the results from all attempts into the original output file
-        # and remove the intermediate files
-        logger.info(
-            'Aggregating results from all attempts into the original output file...'
-        )
-        fout = open(output_file, 'w')
-        added_instance_ids = set()
-        for attempt in reversed(range(1, ITERATIVE_EVAL_MODE_MAX_ATTEMPTS + 1)):
-            cur_output_file = get_cur_output_file_path(attempt)
-            if not os.path.exists(cur_output_file):
-                logger.warning(
-                    f'Intermediate output file {cur_output_file} does not exist. Skipping...'
-                )
-                continue
+    
 
-            with open(cur_output_file, 'r') as f:
-                for line in f:
-                    instance = json.loads(line)
-                    # Also make sure git_patch is not empty - otherwise we fall back to previous attempt (empty patch is worse than anything else)
-                    if (
-                        instance['instance_id'] not in added_instance_ids
-                        and instance['test_result'].get('git_patch', '').strip()
-                    ):
-                        fout.write(line)
-                        added_instance_ids.add(instance['instance_id'])
-            logger.info(
-                f'Aggregated instances from {cur_output_file}. Total instances added so far: {len(added_instance_ids)}'
-            )
-        fout.close()
-        logger.info(
-            f'Done! Total {len(added_instance_ids)} instances added to {output_file}'
-        )
+    

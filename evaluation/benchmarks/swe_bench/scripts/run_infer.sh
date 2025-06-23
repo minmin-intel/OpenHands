@@ -27,8 +27,8 @@ if [ -z "$AGENT" ]; then
 fi
 
 if [ -z "$MAX_ITER" ]; then
-  echo "MAX_ITER not specified, use default 100"
-  MAX_ITER=100
+  echo "MAX_ITER not specified, use default 10"
+  MAX_ITER=10
 fi
 
 if [ -z "$RUN_WITH_BROWSING" ]; then
@@ -103,7 +103,7 @@ fi
 
 function run_eval() {
   local eval_note="${1}"
-  COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_infer.py \
+  COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_agent.py \
     --agent-cls $AGENT \
     --llm-config $MODEL_CONFIG \
     --max-iterations $MAX_ITER \
