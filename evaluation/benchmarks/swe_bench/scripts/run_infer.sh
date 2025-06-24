@@ -28,7 +28,7 @@ fi
 
 if [ -z "$MAX_ITER" ]; then
   echo "MAX_ITER not specified, use default 10"
-  MAX_ITER=10
+  MAX_ITER=5
 fi
 
 if [ -z "$RUN_WITH_BROWSING" ]; then

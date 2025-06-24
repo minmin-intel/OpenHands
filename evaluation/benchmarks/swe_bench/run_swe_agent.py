@@ -61,7 +61,7 @@ from openhands.runtime.base import Runtime
 from openhands.utils.async_utils import call_async_from_sync
 from openhands.utils.shutdown_listener import sleep_if_should_continue
 
-from agent_docker.server import Agent as BenchMarkAgent
+from agent_docker.server import BenchmarkAgentController
 from agent_docker.server import UserRequest
 
 USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
@@ -611,68 +611,6 @@ def complete_runtime(
     return {'git_patch': git_patch}
 
 
-def process_instance(
-    instance: pd.Series,
-    metadata: EvalMetadata,
-    reset_logger: bool = True,
-    runtime_failure_count: int = 0,
-) -> EvalOutput:
-    # config = get_config(instance, metadata)
-
-    # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
-    if reset_logger:
-        log_dir = os.path.join(metadata.eval_output_dir, 'infer_logs')
-        reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
-    else:
-        logger.info(f'Starting evaluation for instance {instance.instance_id}.')
-
-    # Increase resource_factor with increasing attempt_id
-    # if runtime_failure_count > 0:
-    #     config.sandbox.remote_runtime_resource_factor = min(
-    #         config.sandbox.remote_runtime_resource_factor * (2**runtime_failure_count),
-    #         8,
-    #     )
-    #     logger.warning(
-    #         f'This is the {runtime_failure_count + 1}th attempt for instance {instance.instance_id}, setting resource factor to {config.sandbox.remote_runtime_resource_factor}'
-    #     )
-
-    # metadata = copy.deepcopy(metadata)
-    # metadata.details['runtime_failure_count'] = runtime_failure_count
-    # metadata.details['remote_runtime_resource_factor'] = (
-    #     config.sandbox.remote_runtime_resource_factor
-    # )
-
-    # # change file_storage_path
-    # config.file_store_path = "/localdisk/minminho/openhands/trajectories/"
-
-    # try:
-    #     print(f"Config: {config.to_dict()}")
-    # except:
-    #     print(f"Config:{config}")
-
-    instance_base_image = get_base_docker_image(instance)
-    logger.info(
-        f'Using base image for instance {instance.instance_id}: {instance_base_image}'
-    )
-    os.environ["sandbox_base_image"] = instance_base_image
-    agent= BenchMarkAgent()
-
-    try:
-        initialize_runtime(agent.runtime, instance, metadata)
-
-        message_action = get_instruction(instance, metadata)
-        print(f"Message: {message_action.content}")
-        request = UserRequest(message=message_action.content)
-
-        # Here's how you can run the agent (similar to the `main` function) and get the final task state
-        output = agent.run(request)
-    except Exception as e:
-        output = e
-        logger.error(f'Error during agent run: {e}')
-        
-    return output
-
-
 def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
     file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
     if os.path.exists(file_path):
@@ -706,6 +644,79 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
         return dataset[~dataset[filter_column].isin(skip_ids)]
     return dataset
 
+def process_instance(
+    instance: pd.Series,
+    metadata: EvalMetadata,
+    reset_logger: bool = True,
+):
+    # config = get_config(instance, metadata)
+
+    # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
+    if reset_logger:
+        log_dir = os.path.join(metadata.eval_output_dir, 'infer_logs')
+        reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
+        logger.info(
+            f'Starting evaluation for instance {instance.instance_id} with logger reset.'
+        )
+    else:
+        logger.info(f'Starting evaluation for instance {instance.instance_id}.')
+
+    instance_base_image = get_base_docker_image(instance)
+    print(
+        f'Using base image for instance {instance.instance_id}: {instance_base_image}'
+    )
+    os.environ["sandbox_base_image"] = instance_base_image
+    print(f"Set environment variable sandbox_base_image to {os.environ.get('sandbox_base_image')}")
+    agent= BenchmarkAgentController()
+
+    try:
+        initialize_runtime(agent.runtime, instance, metadata)
+
+        message_action = get_instruction(instance, metadata)
+        print(f"Message: {message_action.content}")
+        request = UserRequest(message=message_action.content)
+
+        # Here's how you can run the agent (similar to the `main` function) and get the final task state
+        output = asyncio.run(agent.run(request))
+        print(f"History: {output.history}")
+    except Exception as e:
+        output = e
+        logger.error(f'Error during agent run: {e}')
+        
+    return output
+
+class AgentControllerGroup:
+    """A group of agent controllers for SWE-Bench evaluation."""
+
+    def __init__(self, instances: pd.Series):
+        self.controllers = {}
+        self.instances = instances
+
+    def launch_controllers(self, metadata: EvalMetadata):
+        for instance in self.instances:
+            try:
+                instance_base_image = get_base_docker_image(instance)
+                print(
+                    f'Using base image for instance {instance.instance_id}: {instance_base_image}'
+                )
+                os.environ["sandbox_base_image"] = instance_base_image
+                print(f"Set environment variable sandbox_base_image to {os.environ.get('sandbox_base_image')}")
+                
+                agent= BenchmarkAgentController()
+
+                initialize_runtime(agent.runtime, instance, metadata)
+                self.controllers[instance.instance_id] = agent.id
+            except Exception as e:
+                logger.error(f'Error during runtime initialization: {e}')
+                continue
+
+
+    def get_controller(self, instance_id: str) -> BenchmarkAgentController:
+        if instance_id not in self.controllers:
+            self.controllers[instance_id] = BenchmarkAgentController(
+                agent_cls=self.agent_cls
+            )
+        return self.controllers[instance_id]
 
 if __name__ == '__main__':
     parser = get_parser()
@@ -806,6 +817,7 @@ if __name__ == '__main__':
     print(f'### OUTPUT FILE: {output_file} ###')
     # prepare_dataset will lookup instances that are already run
     instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
+    print(f'### Number of instances to run: {instances.shape[0]} ###')
 
     # run process_instance on each instance
     # NOTE: this is a blocking call, so it will run sequentially

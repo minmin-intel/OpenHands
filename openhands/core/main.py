@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 from typing import Callable, Protocol
+import time
 
 import openhands.agenthub  # noqa F401 (we import this to get the agents registered)
 import openhands.cli.suppress_warnings  # noqa: F401
@@ -95,6 +96,7 @@ async def run_controller(
         >>> action = MessageAction(content="Write a hello world program")
         >>> state = await run_controller(config=config, initial_user_action=action)
     """
+    t0 = time.time()
     sid = sid or generate_sid(config)
 
     if agent is None:
@@ -161,10 +163,16 @@ async def run_controller(
             config.replay_trajectory_path
         )
 
+    t1 = time.time()
+    print(f'Controller prep time {t1 - t0:.2f} seconds')
+
     print('*** Creating controller ***')
+    t0 = time.time()
     controller, initial_state = create_controller(
         agent, runtime, config, replay_events=replay_events
     )
+    t1 = time.time()
+    print(f'Controller created in {t1 - t0:.2f} seconds')
 
     assert isinstance(initial_user_action, Action), (
         f'initial user actions must be an Action, got {type(initial_user_action)}'
@@ -212,11 +220,15 @@ async def run_controller(
         AgentState.STOPPED,
     ]
 
+    t_start = time.time()
     try:
         await run_agent_until_done(controller, runtime, memory, end_states)
     except Exception as e:
         logger.error(f'Exception in main loop: {e}')
+    t_end = time.time()
+    print(f'Agent run completed in {t_end - t_start:.2f} seconds')
 
+    t0= time.time()
     # save session when we're about to close
     if config.file_store is not None and config.file_store != 'memory':
         end_state = controller.get_state()
@@ -224,11 +236,20 @@ async def run_controller(
         end_state.save_to_session(
             event_stream.sid, event_stream.file_store, event_stream.user_id
         )
+    t1 = time.time()
+    print(f'Session saved in {t1 - t0:.2f} seconds')
 
+    t0 = time.time()
     await controller.close(set_stop_state=False)
+    t1 = time.time()
+    print(f'Controller closed in {t1 - t0:.2f} seconds')
 
+    t0 = time.time()
     state = controller.get_state()
+    t1 = time.time()
+    print(f'Final state retrieved in {t0 - t1:.2f} seconds')
 
+    t0 = time.time()
     # save trajectories if applicable
     if config.save_trajectory_path is not None:
         # if save_trajectory_path is a folder, use session id as file name
@@ -240,6 +261,8 @@ async def run_controller(
         histories = controller.get_trajectory(config.save_screenshots_in_trajectory)
         with open(file_path, 'w') as f:  # noqa: ASYNC101
             json.dump(histories, f, indent=4)
+    t1 = time.time()
+    print(f'Trajectory saved in {t1 - t0:.2f} seconds')
 
     return state
 
