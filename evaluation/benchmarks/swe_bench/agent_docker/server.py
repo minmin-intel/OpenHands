@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -9,6 +10,13 @@ import uuid
 from datetime import datetime
 import time
 
+# Add OpenHands to the Python path
+import os
+WORKDIR=os.environ.get('WORKDIR', '/app')
+openhands_path = os.path.join(WORKDIR, 'OpenHands')
+sys.path.append(openhands_path)
+
+# Now import OpenHands modules
 from openhands.controller.state.state import State
 from openhands.core.config import OpenHandsConfig, AgentConfig, SandboxConfig, LLMConfig
 from openhands.core.main import create_runtime, run_controller
@@ -17,6 +25,9 @@ from openhands.events.action import MessageAction
 from openhands.events.serialization.event import event_to_dict
 from openhands.utils.async_utils import call_async_from_sync
 from openhands.core.config.condenser_config import NoOpCondenserConfig
+print("import openhands successfully")
+
+
 
 # Configure logging
 logging.basicConfig(
@@ -148,10 +159,10 @@ def configure_openhands() -> OpenHandsConfig:
     # Configure OpenHands
     config = OpenHandsConfig(
         run_as_openhands=False,
-        max_iterations=os.environ.get("max_iterations", 10),
+        max_iterations=int(os.environ.get("max_iterations", "10")),
         runtime="docker",
         file_store='local',
-        file_store_path='/localdisk/minminho/openhands/trajectories/' #'/app/storage',
+        file_store_path=os.environ.get("TRAJECTORY_PATH", '/app/trajectories')
     )
     
     # Use default LLM config and override with user-provided values
@@ -176,7 +187,7 @@ def configure_openhands() -> OpenHandsConfig:
     return config
 
 @app.post("/create", response_model=CreateResponse)
-async def create_agent():
+async def create_agent_controller():
     """Endpoint to create a new agent instance."""
     try:
         global agent
@@ -206,7 +217,33 @@ async def health_check():
     }
 
 
+def check_docker():
+    """Check if Docker is accessible."""
+    try:
+        import subprocess
+        result = subprocess.run(['docker', 'version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            logger.info("Docker is accessible")
+            return True
+        else:
+            logger.error(f"Docker command failed: {result.stderr}")
+            return False
+    except Exception as e:
+        logger.error(f"Error checking Docker: {e}")
+        return False
+
+
+@app.get("/docker-status")
+async def docker_status():
+    """Check if Docker is accessible."""
+    return {"docker_accessible": check_docker()}
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Get port from environment variable or default to 8000
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+    # controller = BenchmarkAgentController()
+    # print(f"Agent ID: {controller.id}")
 

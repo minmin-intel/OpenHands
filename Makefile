@@ -26,9 +26,6 @@ build:
 	@echo "$(GREEN)Building project...$(RESET)"
 	@$(MAKE) -s check-dependencies
 	@$(MAKE) -s install-python-dependencies
-	@$(MAKE) -s install-frontend-dependencies
-	@$(MAKE) -s install-pre-commit-hooks
-	@$(MAKE) -s build-frontend
 	@echo "$(GREEN)Build completed successfully.$(RESET)"
 
 check-dependencies:
@@ -37,11 +34,7 @@ check-dependencies:
 	@$(MAKE) -s check-python
 	@$(MAKE) -s check-npm
 	@$(MAKE) -s check-nodejs
-ifeq ($(INSTALL_DOCKER),)
-	@$(MAKE) -s check-docker
-endif
 	@$(MAKE) -s check-poetry
-	@$(MAKE) -s check-tmux
 	@echo "$(GREEN)Dependencies checked successfully.$(RESET)"
 
 check-system:

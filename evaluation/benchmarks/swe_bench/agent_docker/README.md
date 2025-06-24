@@ -14,6 +14,15 @@ docker build -t openhands-agent-server .
 
 ```bash
 docker run -p 8000:8000 openhands-agent-server
+
+# Start container 1 on port 8000
+docker run -e PORT=8000 -p 8000:8000 your-image-name
+
+# Start container 2 on port 8001
+docker run -e PORT=8001 -p 8001:8001 your-image-name
+
+# Start container 3 on port 9000
+docker run -e PORT=9000 -p 9000:9000 your-image-name
 ```
 
 ### Run with Environment Variables

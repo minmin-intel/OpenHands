@@ -1,0 +1,25 @@
+
+#!/bin/bash
+# First, remove any existing container with the same name
+docker rm -f openhands-agent-server 2>/dev/null
+
+# Get the Docker group ID on the host system
+DOCKER_GID=$(getent group docker | cut -d: -f3)
+
+# Run the container with Docker socket mounted
+# Pass the correct Docker GID to ensure permissions work
+docker run -d --name openhands-agent-server \
+  -v $WORKDIR/OpenHands:/app/OpenHands \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e DOCKER_GID=$DOCKER_GID \
+  -e PORT=8000 \
+  -p 8000:8000 \
+  openhands-agent
+
+# To see logs
+# docker logs -f openhands-agent-server
+
+# To check if Docker is working inside the container
+echo "Checking Docker inside the container..."
+sleep 2  # Give the container a moment to start
+docker exec openhands-agent-server ./docker_helper.sh check
