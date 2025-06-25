@@ -40,40 +40,28 @@ WORKDIR /app
 
 # Copy OpenHands from the build context
 # Note: This requires setting the build context to the parent directory of OpenHands
-COPY ${OPENHANDS_PATH:-OpenHands} /app/OpenHands
+COPY ${OPENHANDS_PATH:-OpenHands}/openhands /app/openhands
+COPY ${OPENHANDS_PATH:-OpenHands}/agent_docker/server.py /app/server.py
+COPY ${OPENHANDS_PATH:-OpenHands}/agent_docker/requirements.txt /app/requirements.txt
+COPY ${OPENHANDS_PATH:-OpenHands}/pyproject.toml /app/pyproject.toml
+COPY ${OPENHANDS_PATH:-OpenHands}/poetry.lock /app/poetry.lock
+RUN touch README.md
 
+RUN export POETRY_CACHE_DIR && poetry install --no-root && rm -rf $POETRY_CACHE_DIR
 
-# Install OpenHands
-WORKDIR /app/OpenHands
-# RUN git checkout benchmark-dev
+# # Install Poetry dependencies
+# RUN poetry install --with dev,test,runtime
 
-# Install OpenHands in development mode so Python can find it
-RUN pip install -e .
-
-RUN make build
-
-# # Install poetry
-# RUN pip install poetry
-
-# # Configure poetry to not create a virtual environment
-# RUN poetry config virtualenvs.create false
-
-# # Install OpenHands dependencies using poetry
-# RUN poetry install --no-dev
-
-# Set the working directory for the server
-WORKDIR /app/OpenHands/evaluation/benchmarks/swe_bench/agent_docker
-
-# Install additional dependencies for the API server
-COPY OpenHands/evaluation/benchmarks/swe_bench/agent_docker/requirements.txt ./
-COPY OpenHands/evaluation/benchmarks/swe_bench/agent_docker/docker_helper.sh ./
-RUN pip install -r requirements.txt && \
-    chmod +x docker_helper.sh
+# Install server dependencies
+RUN pip install -r requirements.txt
+    
+# Ensure server.py is executable
+RUN chmod +x server.py
 
 # Expose the default FastAPI port
 EXPOSE 8000
 
 # The Docker group will be created at runtime with the correct GID
 
-# Command to run the FastAPI server with Docker group setup
-CMD ["sh", "-c", "if [ ! -z \"$DOCKER_GID\" ]; then groupadd -g $DOCKER_GID docker && usermod -aG docker root; fi && uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Command to run the FastAPI server with Docker group setup using Poetry
+CMD ["sh", "-c", "if [ ! -z \"$DOCKER_GID\" ]; then groupadd -g $DOCKER_GID docker && usermod -aG docker root; fi && poetry run python server.py --host 0.0.0.0 --port ${PORT:-8000}"]
