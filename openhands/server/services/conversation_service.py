@@ -23,7 +23,48 @@ from openhands.storage.data_models.conversation_metadata import (
     ConversationTrigger,
 )
 from openhands.utils.conversation_summary import get_default_conversation_title
+from openhands.storage.data_models.settings import Settings 
+'''
+class Settings(BaseModel):
+    """
+    Persisted settings for OpenHands sessions
+    """
 
+    language: str | None = None
+    agent: str | None = None
+    max_iterations: int | None = None
+    security_analyzer: str | None = None
+    confirmation_mode: bool | None = None
+    llm_model: str | None = None
+    llm_api_key: SecretStr | None = None
+    llm_base_url: str | None = None
+    remote_runtime_resource_factor: int | None = None
+    # Planned to be removed from settings
+    secrets_store: UserSecrets = Field(default_factory=UserSecrets, frozen=True)
+    enable_default_condenser: bool = True
+    enable_sound_notifications: bool = False
+    enable_proactive_conversation_starters: bool = True
+    user_consents_to_analytics: bool | None = None
+    sandbox_base_container_image: str | None = None
+    sandbox_runtime_container_image: str | None = None
+    mcp_config: MCPConfig | None = None
+    search_api_key: SecretStr | None = None
+    email: str | None = None
+    email_verified: bool | None = None
+
+    model_config = {
+        'validate_assignment': True,
+    }
+'''
+
+dummy_settings = Settings(
+    # language=None,
+    # agent="CodeActAgent",
+    llm_model=config.get_llm_config().model,
+    llm_api_key=config.get_llm_config().api_key,
+    llm_base_url=config.get_llm_config().base_url,
+    max_iterations=5,
+)
 
 async def create_new_conversation(
     user_id: str | None,
@@ -39,6 +80,7 @@ async def create_new_conversation(
     attach_convo_id: bool = False,
     git_provider: ProviderType | None = None,
     conversation_id: str | None = None,
+    sandbox_base_image: str | None = None,
 ) -> AgentLoopInfo:
     logger.info(
         'Creating conversation',
@@ -49,15 +91,18 @@ async def create_new_conversation(
         },
     )
     logger.info('Loading settings')
-    settings_store = await SettingsStoreImpl.get_instance(config, user_id)
-    settings = await settings_store.load()
+    # settings_store = await SettingsStoreImpl.get_instance(config, user_id)
+    # settings = await settings_store.load()
+    settings = dummy_settings  # For testing purposes, we use dummy settings
     logger.info('Settings loaded')
+    print(f'===========Settings===========\n{settings}')
 
     session_init_args: dict[str, Any] = {}
     if settings:
         session_init_args = {**settings.__dict__, **session_init_args}
         # We could use litellm.check_valid_key for a more accurate check,
         # but that would run a tiny inference.
+        print(f'===========Session init args===========\n{session_init_args}')
         if (
             not settings.llm_api_key
             or settings.llm_api_key.get_secret_value().isspace()
@@ -77,7 +122,9 @@ async def create_new_conversation(
     session_init_args['selected_branch'] = selected_branch
     session_init_args['git_provider'] = git_provider
     session_init_args['conversation_instructions'] = conversation_instructions
+    session_init_args['sandbox_base_container_image'] = sandbox_base_image
     conversation_init_data = ConversationInitData(**session_init_args)
+    print(f'===========Conversation init data===========\n{conversation_init_data}')
 
     logger.info('Loading conversation store')
     conversation_store = await ConversationStoreImpl.get_instance(config, user_id)
@@ -109,7 +156,7 @@ async def create_new_conversation(
                 selected_branch=selected_branch,
                 git_provider=git_provider,
                 llm_model=conversation_init_data.llm_model,
-            )
+            ) #TODO: check if we need to add sandbox_base_image here
         )
 
     logger.info(

@@ -103,6 +103,8 @@ class BenchmarkAgentController:
             print("Connecting runtime...")
             t0 = time.time()
             call_async_from_sync(self.runtime.connect)
+            # during connect runtime image is built from base image and given a name containing hash
+            # then the runtime docker container is started and connected.
             t1 = time.time()
             print(f"** Runtime connection time: {t1 - t0:.2f} seconds")
             print("Runtime connected successfully.")

@@ -86,6 +86,7 @@ class InitSessionRequest(BaseModel):
         conversation_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
     model_config = {'extra': 'forbid'}
+    sandbox_base_image: str | None = None
 
 
 class ConversationResponse(BaseModel):
@@ -147,6 +148,9 @@ async def new_conversation(
             await provider_handler.verify_repo_provider(repository, git_provider)
 
         conversation_id = getattr(data, 'conversation_id', None) or uuid.uuid4().hex
+        sandbox_base_image = getattr(data, 'sandbox_base_image', config.sandbox.base_container_image)
+        print(f'conversation_id: {conversation_id}')
+        print(f'sandbox_base_image: {sandbox_base_image}')
         agent_loop_info = await create_new_conversation(
             user_id=user_id,
             git_provider_tokens=provider_tokens,
@@ -160,6 +164,7 @@ async def new_conversation(
             conversation_instructions=conversation_instructions,
             git_provider=git_provider,
             conversation_id=conversation_id,
+            sandbox_base_image=sandbox_base_image,
         )
 
         return ConversationResponse(

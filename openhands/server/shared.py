@@ -21,11 +21,15 @@ from openhands.utils.import_utils import get_impl
 load_dotenv()
 
 config: OpenHandsConfig = load_openhands_config()
+print(f'=============OpenHands config loaded==========\n{config}')
+
 server_config_interface: ServerConfigInterface = load_server_config()
 assert isinstance(server_config_interface, ServerConfig), (
     'Loaded server config interface is not a ServerConfig, despite this being assumed'
 )
 server_config: ServerConfig = server_config_interface
+print(f'=============Server config loaded==========\n{server_config_interface}')
+
 file_store: FileStore = get_file_store(
     config.file_store,
     config.file_store_path,

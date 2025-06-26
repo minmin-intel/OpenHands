@@ -21,3 +21,4 @@ class ConversationInitData(Settings):
     model_config = {
         'arbitrary_types_allowed': True,
     }
+    sandbox_base_container_image: str | None = Field(default=None)

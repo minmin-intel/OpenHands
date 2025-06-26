@@ -71,3 +71,12 @@ app.include_router(secrets_router)
 app.include_router(git_api_router)
 app.include_router(trajectory_router)
 add_health_endpoints(app)
+
+if __name__ == '__main__':
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host='0.0.0.0',
+        port=8000
+    )
