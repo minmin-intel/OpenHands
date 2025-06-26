@@ -273,6 +273,11 @@ class StandaloneConversationManager(ConversationManager):
     ) -> Session:
         logger.info(f'starting_agent_loop:{sid}', extra={'session_id': sid})
 
+        print(f"======start agent loop with settings: {settings}======")
+        self.config.sandbox.base_container_image = settings.sandbox_base_container_image
+
+        print(f"======sandbox base image: {self.config.sandbox.base_container_image}======")
+
         response_ids = await self.get_running_agent_loops(user_id)
         if len(response_ids) >= self.config.max_concurrent_conversations:
             logger.info(

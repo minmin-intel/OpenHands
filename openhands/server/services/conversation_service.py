@@ -173,6 +173,8 @@ async def create_new_conversation(
     if attach_convo_id:
         logger.warning('Attaching convo ID is deprecated, skipping process')
 
+    print(f"=========Conversation init data for {conversation_id}=========\n{conversation_init_data}")
+
     agent_loop_info = await conversation_manager.maybe_start_agent_loop(
         conversation_id,
         conversation_init_data,
