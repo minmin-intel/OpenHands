@@ -116,6 +116,7 @@ class DockerRuntime(ActionExecutionClient):
         self.api_url = f'{self.config.sandbox.local_runtime_url}:{self._container_port}'
 
         self.base_container_image = self.config.sandbox.base_container_image
+        print(f'*** Docker runtime: Base container image: {self.base_container_image}')
         self.runtime_container_image = self.config.sandbox.runtime_container_image
         self.container_name = CONTAINER_NAME_PREFIX + sid
         self.container: Container | None = None
@@ -153,6 +154,7 @@ class DockerRuntime(ActionExecutionClient):
     async def connect(self) -> None:
         self.set_runtime_status(RuntimeStatus.STARTING_RUNTIME)
         try:
+            print('Try connect to Docker runtime....')
             await call_sync_from_async(self._attach_to_container)
         except docker.errors.NotFound as e:
             if self.attach_to_existing:
@@ -161,6 +163,7 @@ class DockerRuntime(ActionExecutionClient):
                     f'Container {self.container_name} not found.',
                 )
                 raise AgentRuntimeDisconnectedError from e
+            print('Container not found, will create a new one...')
             self.maybe_build_runtime_container_image()
             self.log(
                 'info', f'Starting runtime with image: {self.runtime_container_image}'
@@ -203,6 +206,8 @@ class DockerRuntime(ActionExecutionClient):
                     'Neither runtime container image nor base container image is set'
                 )
             self.set_runtime_status(RuntimeStatus.BUILDING_RUNTIME)
+            print(f'**Building runtime container image from base image: {self.base_container_image}')
+
             self.runtime_container_image = build_runtime_image(
                 self.base_container_image,
                 self.runtime_builder,
