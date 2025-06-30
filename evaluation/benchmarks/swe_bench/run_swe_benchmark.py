@@ -658,18 +658,15 @@ def process_instance(
         runtime.close()
     # ==========================================
 
-    print(f"*** State: {state}")
-
     histories = [event_to_dict(event) for event in state.history]
-    print(f"*** Histories: {histories}")
-    output={
-        'instance_id': instance.instance_id,
-        'instruction': message_action.content,
-        'instance': instance.to_dict(),  # SWE Bench specific
-        'metadata': metadata,
-        'history': histories,
-        'error': state.last_error if state and state.last_error else "None",
-    }
+    output = EvalOutput(
+        instance_id=instance.instance_id,
+        instruction=message_action.content,
+        instance=instance.to_dict(),  # SWE Bench specific
+        metadata=metadata,
+        history=histories,
+        error=state.last_error if state and state.last_error else None,
+    )
     return output
 
 
@@ -810,20 +807,37 @@ if __name__ == '__main__':
     # run process_instance on each instance
     # NOTE: this is a blocking call, so it will run sequentially
     # If you want to run it in parallel, you can use multiprocessing or threading
-    for _, instance in instances.iterrows():
-        try:
-            output = process_instance(
-                instance,
-                metadata,
-                reset_logger=True,  # reset logger for each instance
-            )
-            # # Save the output to the output file
-            # with open(output_file, 'a') as f:
-            #     f.write(json.dumps(output.to_dict()) + '\n')
-        except EvalException as e:
-            logger.error(f'Error processing instance {instance.instance_id}: {e}')
-            continue
+    # for _, instance in instances.iterrows():
+    #     try:
+    #         output = process_instance(
+    #             instance,
+    #             metadata,
+    #             reset_logger=True,  # reset logger for each instance
+    #         )
+    #         # # Save the output to the output file
+    #         # with open(output_file, 'a') as f:
+    #         #     f.write(json.dumps(output.to_dict()) + '\n')
+    #     except EvalException as e:
+    #         logger.error(f'Error processing instance {instance.instance_id}: {e}')
+    #         continue
+    
+    if len(instances) > 0 and not isinstance(
+        instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str
+    ):
+        for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
+            instances[col] = instances[col].apply(lambda x: str(x))
 
+    run_evaluation(
+        instances,
+        metadata,
+        output_file,
+        args.eval_num_workers,
+        process_instance,
+        timeout_seconds=8
+        * 60
+        * 60,  # 8 hour PER instance should be more than enough
+        max_retries=5,
+    )
 
 
     

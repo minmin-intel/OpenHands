@@ -791,7 +791,13 @@ class AgentController:
             action = self._replay_manager.step()
         else:
             try:
+                t0 = time.time()
                 action = self.agent.step(self.state)
+                t1 = time.time()
+                print(f'***LLM took {t1 - t0:.2f} seconds')
+                logger.warning(
+                    f'***LLM took {t1 - t0:.2f} seconds'
+                )
                 if action is None:
                     raise LLMNoActionError('No action was returned')
                 action._source = EventSource.AGENT  # type: ignore [attr-defined]
@@ -830,7 +836,7 @@ class AgentController:
                         raise LLMContextWindowExceedError()
                 else:
                     raise e
-
+        t0=time.time()
         if action.runnable:
             if self.state.confirmation_mode and (
                 type(action) is CmdRunAction or type(action) is IPythonRunCellAction
@@ -855,6 +861,9 @@ class AgentController:
 
         log_level = 'info' if LOG_ALL_EVENTS else 'debug'
         self.log(log_level, str(action), extra={'msg_type': 'ACTION'})
+        t1 = time.time()
+        logger.warning(f'***Action took {t1 - t0:.2f} seconds')
+        print(f'***Action took {t1 - t0:.2f} seconds')
 
     @property
     def _pending_action(self) -> Action | None:

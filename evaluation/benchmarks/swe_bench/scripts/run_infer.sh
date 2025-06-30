@@ -103,7 +103,7 @@ fi
 
 function run_eval() {
   local eval_note="${1}"
-  COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_agent.py \
+  COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_benchmark.py \
     --agent-cls $AGENT \
     --llm-config $MODEL_CONFIG \
     --max-iterations $MAX_ITER \

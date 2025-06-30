@@ -60,7 +60,7 @@ class EvalOutput(BaseModel):
     instance_id: str
     # output of the evaluation
     # store anything that is needed for the score calculation
-    test_result: dict[str, Any]
+    test_result: dict[str, Any] | None = None
 
     instruction: str | None = None
 
@@ -293,13 +293,18 @@ def update_progress(
 ):
     """Update the progress bar and write the result to the output file."""
     pbar.update(1)
-    pbar.set_description(f'Instance {result.instance_id}')
-    pbar.set_postfix_str(f'Test Result: {str(result.test_result)[:300]}...')
-    logger.info(
-        f'Finished evaluation for instance {result.instance_id}: {str(result.test_result)[:300]}...\n'
-    )
-    output_fp.write(result.model_dump_json() + '\n')
-    output_fp.flush()
+    try:
+        pbar.set_description(f'Instance {result.instance_id}')
+        # pbar.set_postfix_str(f'Test Result: {str(result.test_result)[:300]}...')
+        logger.info(
+            f'Finished evaluation for instance {result.instance_id}: {str(result.test_result)[:300]}...\n'
+        )
+        output_fp.write(result.model_dump_json() + '\n')
+        output_fp.flush()
+    except:
+        pbar.set_description(f'Instance {result["instance_id"]}')
+        output_fp.write(json.dumps(result) + '\n')       
+        output_fp.flush()
 
 
 def assert_and_raise(condition: bool, msg: str):
