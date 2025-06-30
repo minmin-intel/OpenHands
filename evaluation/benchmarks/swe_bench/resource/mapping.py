@@ -11,7 +11,7 @@ import os
 from openhands.core.logger import openhands_logger as logger
 
 CUR_DIR = os.path.dirname(os.path.abspath(__file__))
-print("***CUR_DIR: ", CUR_DIR)
+print('***CUR_DIR: ', CUR_DIR)
 DEFAULT_RUNTIME_RESOURCE_FACTOR = int(
     os.environ.get('DEFAULT_RUNTIME_RESOURCE_FACTOR', 1)
 )
@@ -23,7 +23,7 @@ _global_resource_mapping: dict[str, dict[str, float]] = {}
 def get_resource_mapping(dataset_name: str) -> dict[str, float]:
     if dataset_name not in _global_resource_mapping:
         file_path = os.path.join(CUR_DIR, f'{dataset_name}.json')
-        print("***file_path: ", file_path)
+        print('***file_path: ', file_path)
         if not os.path.exists(file_path):
             logger.info(f'Resource mapping for {dataset_name} not found.')
             return None

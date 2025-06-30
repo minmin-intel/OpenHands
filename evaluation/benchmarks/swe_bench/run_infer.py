@@ -34,6 +34,7 @@ from openhands.core.config import (
     AppConfig,
     get_llm_config_arg,
     get_parser,
+    load_from_toml
 )
 from openhands.core.logger import openhands_logger as logger
 from openhands.core.main import create_runtime, run_controller
@@ -44,6 +45,10 @@ from openhands.events.serialization.event import event_from_dict, event_to_dict
 from openhands.runtime.base import Runtime
 from openhands.utils.async_utils import call_async_from_sync
 from openhands.utils.shutdown_listener import sleep_if_should_continue
+from openhands.core.config.condenser_config import (
+    LLMSummarizingCondenserConfig,
+    NoOpCondenserConfig,
+)
 
 USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
 RUN_WITH_BROWSING = os.environ.get('RUN_WITH_BROWSING', 'false').lower() == 'true'
@@ -497,6 +502,9 @@ def process_instance(
 
     config = get_config(instance, metadata)
 
+    # # add in agent and condenser config
+    # load_from_toml(config)
+
     print('*** Got config: ', config)
 
     # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
@@ -666,6 +674,13 @@ if __name__ == '__main__':
     if llm_config is None:
         raise ValueError(f'Could not find LLM config: --llm_config {args.llm_config}')
 
+    # add code to get agent config and condenser config
+    # AgentConfig was set in get_config() 
+    custom_condenser_config = LLMSummarizingCondenserConfig(
+        llm_config=llm_config,
+        max_size=8
+    )
+
     details = {}
     _agent_cls = openhands.agenthub.Agent.get_cls(args.agent_cls)
 
@@ -680,6 +695,7 @@ if __name__ == '__main__':
         args.eval_note,
         args.eval_output_dir,
         details=details,
+        condenser_config=custom_condenser_config,
     )
 
     output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
