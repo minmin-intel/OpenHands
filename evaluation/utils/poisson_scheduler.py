@@ -5,19 +5,40 @@ import queue
 import logging
 import concurrent.futures
 import traceback
+import os
 from typing import Callable, List, Any, Dict, Tuple, Optional
 import pandas as pd
 from tqdm import tqdm
 
-from openhands.core.logger import openhands_logger as logger
+from openhands.core.logger import openhands_logger as logger, get_console_handler
 from evaluation.utils.shared import (
     EvalMetadata, 
     EvalOutput, 
     EvalTimeoutException,
     update_progress,
     cleanup,
-    is_fatal_runtime_error
+    is_fatal_runtime_error,
+    reset_logger_for_multiprocessing
 )
+
+# Add a handler to help debug logging issues if needed
+def debug_logger_state(instance_id=None):
+    """Print logger state to help debug logger issues"""
+    msg = f"LOGGER STATE for instance {instance_id or 'global'}:\n"
+    msg += f"  Logger: {logger}\n"
+    msg += f"  Level: {logger.level}\n"
+    msg += f"  Handlers: {len(logger.handlers)}\n"
+    
+    for i, handler in enumerate(logger.handlers):
+        msg += f"  Handler {i}: {type(handler).__name__}"
+        if hasattr(handler, 'baseFilename'):
+            msg += f" -> {handler.baseFilename}"
+        if hasattr(handler, 'name'):
+            msg += f" (name: {handler.name})"
+        msg += f" level: {handler.level}\n"
+    
+    print(msg)
+    return msg
 
 class ThreadSafeTimeoutWrapper:
     """A thread-safe timeout wrapper for functions that can't use signal-based timeouts."""
@@ -72,8 +93,6 @@ def _process_instance_wrapper_thread_safe(
             if runtime_failure_count > 0:
                 kwargs['runtime_failure_count'] = runtime_failure_count
             
-            # Run with thread-safe timeout instead of using the signal-based timeout
-            # which only works in the main thread
             if timeout_seconds is not None:
                 result = ThreadSafeTimeoutWrapper.run_with_timeout(
                     func=process_instance_func,
@@ -126,6 +145,11 @@ def run_evaluation_poisson(
     Run evaluation with tasks launched according to a Poisson time distribution.
     Uses a thread-safe timeout mechanism instead of signal-based timeout.
     
+    Logging Strategy:
+    - Uses reset_logger_for_multiprocessing to set up isolated loggers for each instance
+    - This matches the behavior of the standard run_evaluation function for consistency
+    - Each instance gets its own log file in the infer_logs directory
+    
     Args:
         dataset: DataFrame containing instances to process
         metadata: Metadata for the evaluation
@@ -169,13 +193,33 @@ def run_evaluation_poisson(
         # Dummy semaphore that doesn't limit anything
         concurrency_semaphore = threading.Semaphore(value=total_instances)
     
+    # Create a lock for synchronizing logger setup between threads
+    logger_setup_lock = threading.Lock()
+    
     # Track active threads
     active_threads = []
-    
+            
     def process_task(instance, runtime_failure_count=0):
         # Acquire semaphore to limit concurrency if needed
         with concurrency_semaphore:
             try:
+                # Set up logging for this instance with proper synchronization
+                with logger_setup_lock:
+                    # Use the same reset_logger_for_multiprocessing function that the regular
+                    # evaluation uses. This ensures consistency and properly isolates logs.
+                    if metadata and metadata.eval_output_dir:
+                        log_dir = os.path.join(metadata.eval_output_dir, 'infer_logs')
+                        os.makedirs(log_dir, exist_ok=True)
+                        
+                        # This is the key fix: use the same logger reset mechanism as regular evaluation
+                        # This function is specifically designed to properly isolate logs per instance
+                        reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
+                        
+                        # Track the instance we're currently processing in thread-local storage
+                        # This will be used to identify which thread is generating logs
+                        if not hasattr(threading.current_thread(), "current_instance_id"):
+                            threading.current_thread().current_instance_id = instance.instance_id
+                
                 # Use thread-safe wrapper instead of signal-based timeout
                 result = _process_instance_wrapper_thread_safe(
                     process_instance_func=process_instance_func,
@@ -186,6 +230,11 @@ def run_evaluation_poisson(
                     timeout_seconds=timeout_seconds,
                     runtime_failure_count=runtime_failure_count
                 )
+                
+                # Clean up after the task is done by removing instance-specific thread data
+                if hasattr(threading.current_thread(), "current_instance_id"):
+                    delattr(threading.current_thread(), "current_instance_id")
+                
                 result_queue.put(result)
             except Exception as e:
                 logger.exception(f"Error processing instance {instance.instance_id}: {str(e)}")
@@ -219,10 +268,22 @@ def run_evaluation_poisson(
         # Generate time intervals for launching tasks
         intervals = generate_intervals(total_instances - 1)  # -1 because first task starts immediately
         
+        # Create a lock for synchronizing logger setup between threads
+        logger_setup_lock = threading.Lock()
+        
         # Launch tasks according to Poisson distribution
         for i, (_, instance) in enumerate(dataset.iterrows()):
+            # Create infer_logs directory upfront to avoid race conditions
+            if metadata and metadata.eval_output_dir:
+                log_dir = os.path.join(metadata.eval_output_dir, 'infer_logs')
+                os.makedirs(log_dir, exist_ok=True)
+            
             # Start the task in a new thread
-            thread = threading.Thread(target=process_task, args=(instance,))
+            thread = threading.Thread(
+                target=process_task, 
+                args=(instance,),
+                name=f"thread-{instance.instance_id}"  # Name the thread for better debugging
+            )
             thread.daemon = True
             thread.start()
             active_threads.append(thread)

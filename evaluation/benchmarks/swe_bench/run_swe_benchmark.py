@@ -611,7 +611,7 @@ def complete_runtime(
 def process_instance(
     instance: pd.Series,
     metadata: EvalMetadata,
-    reset_logger: bool = True,
+    reset_logger: bool = False,
     runtime_failure_count: int = 0,
 ) -> EvalOutput:
     config = get_config(instance, metadata)

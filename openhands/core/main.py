@@ -100,15 +100,15 @@ async def run_controller(
     sid = sid or generate_sid(config)
 
     if agent is None:
-        print("No agent provided, creating a new one")
+        logger.info("No agent provided, creating a new one")
         agent = create_agent(config)
     else:
-        print("Using provided agent")
+        logger.info("Using provided agent")
 
     # when the runtime is created, it will be connected and clone the selected repository
     repo_directory = None
     if runtime is None:
-        print("No runtime provided, creating a new one")
+        logger.info("No runtime provided, creating a new one")
         runtime = create_runtime(
             config,
             sid=sid,
@@ -125,13 +125,13 @@ async def run_controller(
                 selected_repository=config.sandbox.selected_repo,
             )
     else:
-        print("Using provided runtime")
+        logger.info("Using provided runtime")
 
 
     event_stream = runtime.event_stream
 
     # when memory is created, it will load the microagents from the selected repository
-    print("Setting up memory")
+    logger.info("Setting up memory")
     if memory is None:
         memory = create_memory(
             runtime=runtime,
@@ -144,7 +144,7 @@ async def run_controller(
 
     # Add MCP tools to the agent
     if agent.config.enable_mcp:
-        print("Adding MCP tools to the agent")
+        logger.info("Adding MCP tools to the agent")
         # Add OpenHands' MCP server by default
         _, openhands_mcp_stdio_servers = (
             OpenHandsMCPConfigImpl.create_default_mcp_server_config(
@@ -164,15 +164,15 @@ async def run_controller(
         )
 
     t1 = time.time()
-    print(f'Controller prep time {t1 - t0:.2f} seconds')
+    logger.info(f'Controller prep time {t1 - t0:.2f} seconds')
 
-    print('*** Creating controller ***')
+    logger.info('*** Creating controller ***')
     t0 = time.time()
     controller, initial_state = create_controller(
         agent, runtime, config, replay_events=replay_events
     )
     t1 = time.time()
-    print(f'Controller created in {t1 - t0:.2f} seconds')
+    logger.info(f'Controller created in {t1 - t0:.2f} seconds')
 
     assert isinstance(initial_user_action, Action), (
         f'initial user actions must be an Action, got {type(initial_user_action)}'
@@ -226,7 +226,7 @@ async def run_controller(
     except Exception as e:
         logger.error(f'Exception in main loop: {e}')
     t_end = time.time()
-    print(f'Agent run completed in {t_end - t_start:.2f} seconds')
+    logger.info(f'Agent run completed in {t_end - t_start:.2f} seconds')
 
     t0= time.time()
     # save session when we're about to close
@@ -237,17 +237,17 @@ async def run_controller(
             event_stream.sid, event_stream.file_store, event_stream.user_id
         )
     t1 = time.time()
-    print(f'Session saved in {t1 - t0:.2f} seconds')
+    logger.info(f'Session saved in {t1 - t0:.2f} seconds')
 
     t0 = time.time()
     await controller.close(set_stop_state=False)
     t1 = time.time()
-    print(f'Controller closed in {t1 - t0:.2f} seconds')
+    logger.info(f'Controller closed in {t1 - t0:.2f} seconds')
 
     t0 = time.time()
     state = controller.get_state()
     t1 = time.time()
-    print(f'Final state retrieved in {t0 - t1:.2f} seconds')
+    logger.info(f'Final state retrieved in {t0 - t1:.2f} seconds')
 
     t0 = time.time()
     # save trajectories if applicable
@@ -262,7 +262,7 @@ async def run_controller(
         with open(file_path, 'w') as f:  # noqa: ASYNC101
             json.dump(histories, f, indent=4)
     t1 = time.time()
-    print(f'Trajectory saved in {t1 - t0:.2f} seconds')
+    logger.info(f'Trajectory saved in {t1 - t0:.2f} seconds')
 
     return state
 

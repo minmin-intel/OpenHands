@@ -114,7 +114,7 @@ function run_eval() {
     --split $SPLIT \
     --mode $MODE \
     --use-poisson \
-    --poisson-rate $POSSION_RATE"
+    --poisson-rate $POISSON_RATE"
 
 
 
