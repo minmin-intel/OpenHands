@@ -61,6 +61,7 @@ from openhands.events.serialization.event import event_from_dict, event_to_dict
 from openhands.runtime.base import Runtime
 from openhands.utils.async_utils import call_async_from_sync
 from openhands.utils.shutdown_listener import sleep_if_should_continue
+from openhands.core.config.llm_config import LLMConfig
 
 USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
 RUN_WITH_BROWSING = os.environ.get('RUN_WITH_BROWSING', 'false').lower() == 'true'
@@ -642,10 +643,10 @@ def process_instance(
     # change file_storage_path
     config.file_store_path = "/localdisk/minminho/openhands/trajectories/"
 
-    try:
-        print(f"Config: {config.to_dict()}")
-    except:
-        print(f"Config:{config}")
+    # try:
+    #     print(f"Config: {config.to_dict()}")
+    # except:
+    #     print(f"Config:{config}")
 
     runtime = create_runtime(config)
     call_async_from_sync(runtime.connect)
@@ -654,7 +655,7 @@ def process_instance(
         initialize_runtime(runtime, instance, metadata)
 
         message_action = get_instruction(instance, metadata)
-        print(f"Message Action: {message_action}")
+        # print(f"Message Action: {message_action}")
 
         # Here's how you can run the agent (similar to the `main` function) and get the final task state
         state: State | None = asyncio.run(
@@ -760,6 +761,18 @@ if __name__ == '__main__':
         default=None,
         help='Maximum number of concurrent tasks when using Poisson distribution (default: unlimited)',
     )
+    parser.add_argument(
+        '--model',
+        type=str,
+        default='gpt-4.1',
+        help='LLM model to use for evaluation'
+    )
+    parser.add_argument(
+        '--base-url',
+        type=str,
+        default='http://localhost:8000/v1',
+        help='Base URL for the LLM endpoint (default: http://localhost:8000/v1)',
+    )
 
     args, _ = parser.parse_known_args()
 
@@ -791,12 +804,21 @@ if __name__ == '__main__':
             f'{len(swe_bench_tests)} tasks left after filtering for SWE-Gym verified instances'
         )
 
-    llm_config = None
-    if args.llm_config:
-        llm_config = get_llm_config_arg(args.llm_config)
-        llm_config.log_completions = True
-        # modify_params must be False for evaluation purpose, for reproducibility and accurancy of results
-        llm_config.modify_params = False
+    # llm_config = None
+    # if args.llm_config:
+    #     llm_config = get_llm_config_arg(args.llm_config)
+    #     llm_config.log_completions = True
+    #     # modify_params must be False for evaluation purpose, for reproducibility and accurancy of results
+    #     llm_config.modify_params = False
+
+    llm_config = LLMConfig(
+        model=args.model,
+        temperature=0.3, # arbitrary value
+        api_key="empty", # test local llms served by vllm
+        base_url=args.base_url,
+        log_completions=True,  # Always log completions for evaluation
+        modify_params=False,  # Do not modify params for evaluation
+    )
 
     if llm_config is None:
         raise ValueError(f'Could not find LLM config: --llm_config {args.llm_config}')
@@ -834,7 +856,7 @@ if __name__ == '__main__':
     )
 
     output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
-    print(f'### OUTPUT FILE: {output_file} ###')
+    # print(f'### OUTPUT FILE: {output_file} ###')
     # prepare_dataset will lookup instances that are already run
     instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
 

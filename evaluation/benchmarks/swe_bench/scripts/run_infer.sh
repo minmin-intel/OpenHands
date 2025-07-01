@@ -3,7 +3,8 @@ set -eo pipefail
 
 source "evaluation/utils/version_control.sh"
 
-MODEL_CONFIG=$1
+# MODEL_CONFIG=$1
+MODEL=$1
 COMMIT_HASH=$2
 AGENT=$3
 EVAL_LIMIT=$4
@@ -14,6 +15,7 @@ SPLIT=$8
 N_RUNS=$9
 MODE=${10}
 POISSON_RATE=${11:-2.0}
+BASE_URL=${12:-"http://localhost:8000/v1"}
 
 
 if [ -z "$NUM_WORKERS" ]; then
@@ -106,7 +108,8 @@ function run_eval() {
   local eval_note="${1}"
   COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_benchmark.py \
     --agent-cls $AGENT \
-    --llm-config $MODEL_CONFIG \
+    --model $MODEL \
+    --base-url $BASE_URL \
     --max-iterations $MAX_ITER \
     --eval-num-workers $NUM_WORKERS \
     --eval-note $eval_note \
