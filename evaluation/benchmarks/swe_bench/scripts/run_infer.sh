@@ -13,6 +13,7 @@ DATASET=$7
 SPLIT=$8
 N_RUNS=$9
 MODE=${10}
+POISSON_RATE=${11:-2.0}
 
 
 if [ -z "$NUM_WORKERS" ]; then
@@ -111,7 +112,9 @@ function run_eval() {
     --eval-note $eval_note \
     --dataset $DATASET \
     --split $SPLIT \
-    --mode $MODE"
+    --mode $MODE \
+    --use-poisson \
+    --poisson-rate $POSSION_RATE"
 
 
 

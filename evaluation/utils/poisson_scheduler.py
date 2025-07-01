@@ -3,7 +3,9 @@ import time
 import threading
 import queue
 import logging
-from typing import Callable, List, Any, Dict, Tuple
+import concurrent.futures
+import traceback
+from typing import Callable, List, Any, Dict, Tuple, Optional
 import pandas as pd
 from tqdm import tqdm
 
@@ -11,10 +13,104 @@ from openhands.core.logger import openhands_logger as logger
 from evaluation.utils.shared import (
     EvalMetadata, 
     EvalOutput, 
-    _process_instance_wrapper, 
+    EvalTimeoutException,
     update_progress,
-    cleanup
+    cleanup,
+    is_fatal_runtime_error
 )
+
+class ThreadSafeTimeoutWrapper:
+    """A thread-safe timeout wrapper for functions that can't use signal-based timeouts."""
+    
+    @staticmethod
+    def run_with_timeout(func, args=(), kwargs=None, timeout_seconds=None):
+        """
+        Run the given function with a timeout.
+        
+        Args:
+            func: The function to run
+            args: Positional arguments to pass to the function
+            kwargs: Keyword arguments to pass to the function
+            timeout_seconds: Timeout in seconds, or None for no timeout
+            
+        Returns:
+            The result of the function
+            
+        Raises:
+            EvalTimeoutException: If the function times out
+            Exception: Any exception raised by the function
+        """
+        if kwargs is None:
+            kwargs = {}
+            
+        if timeout_seconds is None:
+            # If no timeout specified, just run the function
+            return func(*args, **kwargs)
+        
+        # Use ThreadPoolExecutor for timeout management
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func, *args, **kwargs)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except concurrent.futures.TimeoutError:
+                raise EvalTimeoutException(f'Function timed out after {timeout_seconds} seconds')
+
+def _process_instance_wrapper_thread_safe(
+    process_instance_func: Callable[[pd.Series, EvalMetadata, bool], EvalOutput],
+    instance: pd.Series,
+    metadata: EvalMetadata,
+    use_mp: bool,
+    max_retries: int = 5,
+    timeout_seconds: Optional[int] = None,
+    runtime_failure_count: int = 0,
+) -> EvalOutput:
+    """Thread-safe wrapper for processing instances with timeout support."""
+    for attempt in range(max_retries + 1):
+        try:
+            kwargs = {}
+            # Check if process_instance_func accepts runtime_failure_count parameter
+            if runtime_failure_count > 0:
+                kwargs['runtime_failure_count'] = runtime_failure_count
+            
+            # Run with thread-safe timeout instead of using the signal-based timeout
+            # which only works in the main thread
+            if timeout_seconds is not None:
+                result = ThreadSafeTimeoutWrapper.run_with_timeout(
+                    func=process_instance_func,
+                    args=(instance, metadata, use_mp),
+                    kwargs=kwargs,
+                    timeout_seconds=timeout_seconds
+                )
+            else:
+                result = process_instance_func(instance, metadata, use_mp, **kwargs)
+                
+            return result
+            
+        except EvalTimeoutException as e:
+            error = f'Timeout after {timeout_seconds} seconds'
+            logger.exception(e)
+            return EvalOutput(
+                instance_id=instance.instance_id,
+                test_result={},
+                error=error,
+            )
+            
+        except Exception as e:
+            # Handle retries, similar to the original _process_instance_wrapper
+            if attempt == max_retries:
+                logger.exception(e)
+                raise RuntimeError(
+                    f'Maximum error retries reached for instance {instance.instance_id}'
+                ) from e
+                
+            # Check for fatal runtime errors to increment runtime_failure_count
+            error_str = type(e).__name__ + ': ' + str(e)
+            if is_fatal_runtime_error(error_str):
+                runtime_failure_count += 1
+                logger.error(f'Runtime error detected for instance {instance.instance_id}, runtime failure count: {runtime_failure_count}')
+                
+            logger.error(f'Error processing instance {instance.instance_id}: {str(e)}. Retrying... (attempt {attempt + 1} of {max_retries})')
+            time.sleep(5)
 
 def run_evaluation_poisson(
     dataset: pd.DataFrame,
@@ -23,11 +119,12 @@ def run_evaluation_poisson(
     rate_per_minute: float,  # Average number of tasks to launch per minute
     process_instance_func: Callable[[pd.Series, EvalMetadata, bool], EvalOutput],
     max_retries: int = 5,  # number of retries for each instance
-    timeout_seconds: int | None = None,
-    max_concurrent_tasks: int | None = None,  # Maximum number of concurrent tasks
+    timeout_seconds: Optional[int] = None,
+    max_concurrent_tasks: Optional[int] = None,  # Maximum number of concurrent tasks
 ):
     """
     Run evaluation with tasks launched according to a Poisson time distribution.
+    Uses a thread-safe timeout mechanism instead of signal-based timeout.
     
     Args:
         dataset: DataFrame containing instances to process
@@ -39,8 +136,6 @@ def run_evaluation_poisson(
         timeout_seconds: Timeout for each instance
         max_concurrent_tasks: Maximum number of concurrent tasks (if None, unlimited)
     """
-    # Use the OpenHands logger
-    
     if metadata is not None:
         logger.info(
             f'Evaluation started with Agent {metadata.agent_class}:\n'
@@ -77,17 +172,19 @@ def run_evaluation_poisson(
     # Track active threads
     active_threads = []
     
-    def process_task(instance):
+    def process_task(instance, runtime_failure_count=0):
         # Acquire semaphore to limit concurrency if needed
         with concurrency_semaphore:
             try:
-                result = _process_instance_wrapper(
+                # Use thread-safe wrapper instead of signal-based timeout
+                result = _process_instance_wrapper_thread_safe(
                     process_instance_func=process_instance_func,
                     instance=instance,
                     metadata=metadata,
                     use_mp=False,
                     max_retries=max_retries,
                     timeout_seconds=timeout_seconds,
+                    runtime_failure_count=runtime_failure_count
                 )
                 result_queue.put(result)
             except Exception as e:
@@ -142,7 +239,7 @@ def run_evaluation_poisson(
             thread.join()
         
         # Wait for result handler to process all results
-        result_thread.join(timeout=60)  # Give it a minute to finish processing results
+        result_thread.join(timeout=600)  # Give it ten minutes to finish processing results
         
     except KeyboardInterrupt:
         print('\nKeyboardInterrupt received. Cleaning up...\n')

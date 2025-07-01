@@ -2,11 +2,12 @@ MODEL_CONFIG="llm.eval_gaudi"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
 EVAL_LIMIT=10
-MAX_ITER=5
+MAX_ITER=50
 NUM_WORKERS=2
-# DATASET=$7
-# SPLIT=$8
-# N_RUNS=$9
-# MODE=${10}
+DATASET="princeton-nlp/SWE-bench_Lite"
+SPLIT="test"
+N_RUNS=1
+MODE="swe"
+POISSON_RATE=100
 
-./evaluation/benchmarks/swe_bench/scripts/run_infer.sh $MODEL_CONFIG $COMMIT_HASH $AGENT $EVAL_LIMIT $MAX_ITER $NUM_WORKERS
+./evaluation/benchmarks/swe_bench/scripts/run_infer.sh $MODEL_CONFIG $COMMIT_HASH $AGENT $EVAL_LIMIT $MAX_ITER $NUM_WORKERS $DATASET $SPLIT $N_RUNS $MODE $POISSON_RATE
