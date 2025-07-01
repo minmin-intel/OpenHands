@@ -38,6 +38,7 @@ from evaluation.utils.shared import (
     run_evaluation,
     update_llm_config_for_completions_logging,
 )
+from evaluation.utils.poisson_scheduler import run_evaluation_poisson
 from openhands.controller.state.state import State
 from openhands.core.config import (
     AgentConfig,
@@ -167,6 +168,23 @@ DEFAULT_DOCKER_IMAGE_PREFIX = os.environ.get(
     'EVAL_DOCKER_IMAGE_PREFIX', 'docker.io/xingyaoww/'
 )
 logger.info(f'Default docker image prefix: {DEFAULT_DOCKER_IMAGE_PREFIX}')
+
+"""
+This script runs the SWE-Bench evaluation benchmark.
+
+In addition to standard evaluation, this script supports running evaluation with
+a Poisson time distribution for task launches, which can be useful for:
+1. Avoiding overloading resources all at once
+2. Simulating more realistic traffic patterns
+3. Allowing time for system stabilization between task launches
+
+Usage with Poisson distribution:
+    python run_swe_benchmark.py --use-poisson --poisson-rate 2.0 --max-concurrent-tasks 10
+    
+    - use-poisson: Enable Poisson distribution for task launches
+    - poisson-rate: Average number of tasks to launch per minute (λ parameter)
+    - max-concurrent-tasks: Maximum number of concurrent tasks (optional)
+"""
 
 
 def get_instance_docker_image(
@@ -725,6 +743,23 @@ if __name__ == '__main__':
         choices=['swe', 'swt', 'swt-ci'],
         help="mode to run the evaluation, either 'swe', 'swt', or 'swt-ci'",
     )
+    parser.add_argument(
+        '--use-poisson',
+        action='store_true',
+        help='Use Poisson time distribution for launching tasks instead of launching all at once',
+    )
+    parser.add_argument(
+        '--poisson-rate',
+        type=float,
+        default=2.0,
+        help='Average number of tasks to launch per minute when using Poisson distribution (default: 2.0)',
+    )
+    parser.add_argument(
+        '--max-concurrent-tasks',
+        type=int,
+        default=None,
+        help='Maximum number of concurrent tasks when using Poisson distribution (default: unlimited)',
+    )
 
     args, _ = parser.parse_known_args()
 
@@ -798,7 +833,6 @@ if __name__ == '__main__':
         condenser_config=condenser_config,
     )
 
- 
     output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
     print(f'### OUTPUT FILE: {output_file} ###')
     # prepare_dataset will lookup instances that are already run
@@ -827,19 +861,30 @@ if __name__ == '__main__':
         for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
             instances[col] = instances[col].apply(lambda x: str(x))
 
-    run_evaluation(
-        instances,
-        metadata,
-        output_file,
-        args.eval_num_workers,
-        process_instance,
-        timeout_seconds=8
-        * 60
-        * 60,  # 8 hour PER instance should be more than enough
-        max_retries=5,
-    )
+    if args.use_poisson:
+        logger.info(f"Using Poisson time distribution with rate {args.poisson_rate} tasks per minute")
+        run_evaluation_poisson(
+            instances,
+            metadata,
+            output_file,
+            rate_per_minute=args.poisson_rate,
+            process_instance_func=process_instance,
+            timeout_seconds=8 * 60 * 60,  # 8 hour PER instance should be more than enough
+            max_retries=5,
+            max_concurrent_tasks=args.max_concurrent_tasks,
+        )
+    else:
+        logger.info(f"Using standard parallel evaluation with {args.eval_num_workers} workers")
+        run_evaluation(
+            instances,
+            metadata,
+            output_file,
+            args.eval_num_workers,
+            process_instance,
+            timeout_seconds=8 * 60 * 60,  # 8 hour PER instance should be more than enough
+            max_retries=5,
+        )
 
 
-    
 
-    
+
