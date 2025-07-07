@@ -2,9 +2,9 @@
 MODEL="openai/meta-llama/Llama-3.3-70B-Instruct"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
-EVAL_LIMIT=500
+EVAL_LIMIT=100
 MAX_ITER=2
-NUM_WORKERS=2
+NUM_WORKERS=4
 DATASET="princeton-nlp/SWE-bench_Lite"
 SPLIT="test"
 N_RUNS=1

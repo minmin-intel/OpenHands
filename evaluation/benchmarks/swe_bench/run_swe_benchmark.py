@@ -27,6 +27,7 @@ from evaluation.utils.shared import (
     EvalException,
     EvalMetadata,
     EvalOutput,
+    BuildOutput,
     assert_and_raise,
     codeact_user_response,
     get_default_sandbox_config_for_eval,
@@ -259,7 +260,7 @@ def get_config(
         )
     )
     # get 'draft_editor' config if exists
-    config.set_llm_config(get_llm_config_arg('draft_editor'), 'draft_editor')
+    # config.set_llm_config(get_llm_config_arg('draft_editor'), 'draft_editor')
 
     agent_config = AgentConfig(
         enable_jupyter=False,
@@ -609,6 +610,73 @@ def complete_runtime(
     return {'git_patch': git_patch}
 
 
+def prebuild_runtime_for_instance(
+        instance: pd.Series,
+        metadata: EvalMetadata,
+        reset_logger: bool = True,
+):
+    from openhands.runtime.builder import DockerRuntimeBuilder
+    from openhands.runtime.utils.runtime_build import build_runtime_image
+    import docker
+    # Prebuild runtime images for the evaluation
+    if reset_logger:
+        log_dir = os.path.join(metadata.eval_output_dir, 'build_logs')
+        reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
+    else:
+        logger.info(f'Starting evaluation for instance {instance.instance_id}.')
+
+    config = get_config(instance, metadata)
+    docker_client = docker.from_env()
+    builder = DockerRuntimeBuilder(docker_client)
+    runtime_container_image = build_runtime_image(
+                config.sandbox.base_container_image,
+                builder,
+                platform=config.sandbox.platform,
+                extra_deps=config.sandbox.runtime_extra_deps,
+                force_rebuild=config.sandbox.force_rebuild_runtime,
+                extra_build_args=config.sandbox.runtime_extra_build_args,
+            )
+    
+    # remove intermediate image
+    # final image: ghcr.io/all-hands-ai/runtime:oh_v0.44.0_yfkqmdithaffzkkk_glxm1jpu0685fjbh
+    # intermediate image: ghcr.io/all-hands-ai/runtime:oh_v0.44.0_yfkqmdithaffzkkk
+    intermediate_image = runtime_container_image.split("_")
+    if len(intermediate_image) > 1:
+        intermediate_image = "_".join(intermediate_image[:-1])
+        logger.info(f'Removing intermediate image: {intermediate_image}')
+        try:
+            docker_client.images.remove(intermediate_image, force=True)
+            logger.info(f'Removed intermediate image: {intermediate_image}')
+        except docker.errors.APIError as e:
+            logger.error(f'Failed to remove intermediate image {intermediate_image}: {e}')
+
+    return BuildOutput(
+        instance_id=instance.instance_id,
+        image_name=runtime_container_image
+    )
+
+
+def get_prebulit_runtime_image(
+    instance: pd.Series,
+    metadata: EvalMetadata,
+) -> str:
+    lookup_file = os.path.join(
+        metadata.eval_output_dir, 'prebuilt_images.jsonl'
+    )
+    if not os.path.exists(lookup_file):
+        logger.warning(
+            f'Prebuilt images lookup file {lookup_file} does not exist. '
+            'No prebuilt image will be used.'
+        )
+        return None
+    with open(lookup_file, 'r') as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry['instance_id'] == instance.instance_id:
+                return entry['image_name']
+    return None
+
+
 def process_instance(
     instance: pd.Series,
     metadata: EvalMetadata,
@@ -642,6 +710,14 @@ def process_instance(
 
     # change file_storage_path
     config.file_store_path = "/localdisk/minminho/openhands/trajectories/"
+
+    # get prebuilt runtime image if exists
+    prebuilt_image = get_prebulit_runtime_image(instance, metadata)
+    if prebuilt_image:
+        logger.info(
+            f'Using prebuilt runtime image {prebuilt_image} for instance {instance.instance_id}'
+        )
+        config.sandbox.runtime_container_image = prebuilt_image
 
     # try:
     #     print(f"Config: {config.to_dict()}")
@@ -689,41 +765,67 @@ def process_instance(
     return output
 
 
-def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
-    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as file:
-            data = toml.load(file)
-            if 'selected_ids' in data:
-                selected_ids = data['selected_ids']
-                logger.info(
-                    f'Filtering {len(selected_ids)} tasks from "selected_ids"...'
-                )
-                subset = dataset[dataset[filter_column].isin(selected_ids)]
-                logger.info(f'Retained {subset.shape[0]} tasks after filtering')
-                return subset
-            if 'selected_repos' in data:
-                # repos for the swe-bench instances:
-                # ['astropy/astropy', 'django/django', 'matplotlib/matplotlib', 'mwaskom/seaborn', 'pallets/flask', 'psf/requests', 'pydata/xarray', 'pylint-dev/pylint', 'pytest-dev/pytest', 'scikit-learn/scikit-learn', 'sphinx-doc/sphinx', 'sympy/sympy']
-                selected_repos = data['selected_repos']
-                if isinstance(selected_repos, str):
-                    selected_repos = [selected_repos]
-                assert isinstance(selected_repos, list)
-                logger.info(
-                    f'Filtering {selected_repos} tasks from "selected_repos"...'
-                )
-                subset = dataset[dataset['repo'].isin(selected_repos)]
-                logger.info(f'Retained {subset.shape[0]} tasks after filtering')
-                return subset
+def filter_dataset(dataset: pd.DataFrame, filter_column: str, filter_with: str, metadata=None) -> pd.DataFrame:
+    if filter_with == 'config_toml':
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                data = toml.load(file)
+                if 'selected_ids' in data:
+                    selected_ids = data['selected_ids']
+                    logger.info(
+                        f'Filtering {len(selected_ids)} tasks from "selected_ids"...'
+                    )
+                    subset = dataset[dataset[filter_column].isin(selected_ids)]
+                    logger.info(f'Retained {subset.shape[0]} tasks after filtering')
+                    return subset
+                if 'selected_repos' in data:
+                    # repos for the swe-bench instances:
+                    # ['astropy/astropy', 'django/django', 'matplotlib/matplotlib', 'mwaskom/seaborn', 'pallets/flask', 'psf/requests', 'pydata/xarray', 'pylint-dev/pylint', 'pytest-dev/pytest', 'scikit-learn/scikit-learn', 'sphinx-doc/sphinx', 'sympy/sympy']
+                    selected_repos = data['selected_repos']
+                    if isinstance(selected_repos, str):
+                        selected_repos = [selected_repos]
+                    assert isinstance(selected_repos, list)
+                    logger.info(
+                        f'Filtering {selected_repos} tasks from "selected_repos"...'
+                    )
+                    subset = dataset[dataset['repo'].isin(selected_repos)]
+                    logger.info(f'Retained {subset.shape[0]} tasks after filtering')
+                    return subset
+    elif filter_with == 'prebuilt_images':
+        # Filter based on prebuilt images
+        prebuilt_images_file = os.path.join(
+            metadata.eval_output_dir, 'prebuilt_images.jsonl'
+        )
+        if os.path.exists(prebuilt_images_file):
+            with open(prebuilt_images_file, 'r') as f:
+                prebuilt_images = {json.loads(line)['instance_id'] for line in f}
+            logger.info(
+                f'Filtering {len(prebuilt_images)} tasks from "prebuilt_images"...'
+            )
+            return dataset[dataset[filter_column].isin(prebuilt_images)]
+        else:
+            logger.warning(
+                f'Prebuilt images file {prebuilt_images_file} does not exist. No filtering will be applied.'
+            )
+            logger.warning(
+                'If you want to filter tasks based on prebuilt images, please run the prebuild step first.'
+            )
+            return dataset
+    elif filter_with == 'skip_ids':
+        skip_ids = os.environ.get('SKIP_IDS', '').split(',')
+        if len(skip_ids) > 0:
+            logger.info(f'Filtering {len(skip_ids)} tasks from "SKIP_IDS"...')
+            return dataset[~dataset[filter_column].isin(skip_ids)]
+        return dataset
+    else:
+        raise ValueError(
+            f'Unsupported filter_with value: {filter_with}. Supported values are "config_toml", "prebuilt_images", "skip_ids".'
+        )
 
-    skip_ids = os.environ.get('SKIP_IDS', '').split(',')
-    if len(skip_ids) > 0:
-        logger.info(f'Filtering {len(skip_ids)} tasks from "SKIP_IDS"...')
-        return dataset[~dataset[filter_column].isin(skip_ids)]
     return dataset
 
-
-if __name__ == '__main__':
+def get_args():
     parser = get_parser()
     parser.add_argument(
         '--dataset',
@@ -773,37 +875,26 @@ if __name__ == '__main__':
         default='http://localhost:8000/v1',
         help='Base URL for the LLM endpoint (default: http://localhost:8000/v1)',
     )
+    parser.add_argument(
+        '--prebuild',
+        action='store_true',
+        help='Prebuild runtime images for the evaluation',
+    )
+
+    parser.add_argument(
+        '--data_filter_type',
+        type=str,
+        default='prebuilt_images',
+        choices=['config_toml', 'prebuilt_images', 'skip_ids'],
+        help='Type of data filtering to apply. Options are "config_toml", "prebuilt_images", or "skip_ids".',
+    )
 
     args, _ = parser.parse_known_args()
+    return args
 
-    # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
-    # so we don't need to manage file uploading to OpenHands's repo
-    dataset = load_dataset(args.dataset, split=args.split)
-
-    # Set the global dataset type based on dataset name
-    set_dataset_type(args.dataset)
-
-    swe_bench_tests = filter_dataset(dataset.to_pandas(), 'instance_id')
-    logger.info(
-        f'Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks'
-    )
-    if DATASET_TYPE == 'SWE-Gym':
-        with open(
-            os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                'split',
-                'swegym_verified_instances.json',
-            ),
-            'r',
-        ) as f:
-            swegym_verified_instances = json.load(f)
-            swe_bench_tests = swe_bench_tests[
-                swe_bench_tests['instance_id'].isin(swegym_verified_instances)
-            ]
-        logger.info(
-            f'{len(swe_bench_tests)} tasks left after filtering for SWE-Gym verified instances'
-        )
-
+if __name__ == '__main__':
+    
+    args = get_args()
     # llm_config = None
     # if args.llm_config:
     #     llm_config = get_llm_config_arg(args.llm_config)
@@ -855,57 +946,86 @@ if __name__ == '__main__':
         condenser_config=condenser_config,
     )
 
-    output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
-    # print(f'### OUTPUT FILE: {output_file} ###')
+    # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
+    # so we don't need to manage file uploading to OpenHands's repo
+    dataset = load_dataset(args.dataset, split=args.split)
+
+    # Set the global dataset type based on dataset name
+    set_dataset_type(args.dataset)
+
+    swe_bench_tests = filter_dataset(dataset.to_pandas(), 'instance_id', args.data_filter_type, metadata)
+    logger.info(
+        f'Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks'
+    )
+    if DATASET_TYPE == 'SWE-Gym':
+        with open(
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'split',
+                'swegym_verified_instances.json',
+            ),
+            'r',
+        ) as f:
+            swegym_verified_instances = json.load(f)
+            swe_bench_tests = swe_bench_tests[
+                swe_bench_tests['instance_id'].isin(swegym_verified_instances)
+            ]
+        logger.info(
+            f'{len(swe_bench_tests)} tasks left after filtering for SWE-Gym verified instances'
+        )
+
+
     # prepare_dataset will lookup instances that are already run
+    if args.prebuild:
+        output_file = os.path.join(metadata.eval_output_dir, 'prebuilt_images.jsonl')
+    else:
+        output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
+
     instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
 
-    # run process_instance on each instance
-    # NOTE: this is a blocking call, so it will run sequentially
-    # If you want to run it in parallel, you can use multiprocessing or threading
-    # for _, instance in instances.iterrows():
-    #     try:
-    #         output = process_instance(
-    #             instance,
-    #             metadata,
-    #             reset_logger=True,  # reset logger for each instance
-    #         )
-    #         # # Save the output to the output file
-    #         # with open(output_file, 'a') as f:
-    #         #     f.write(json.dumps(output.to_dict()) + '\n')
-    #     except EvalException as e:
-    #         logger.error(f'Error processing instance {instance.instance_id}: {e}')
-    #         continue
-    
     if len(instances) > 0 and not isinstance(
         instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str
     ):
         for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
             instances[col] = instances[col].apply(lambda x: str(x))
 
-    if args.use_poisson:
-        logger.info(f"Using Poisson time distribution with rate {args.poisson_rate} tasks per minute")
-        run_evaluation_poisson(
-            instances,
-            metadata,
-            output_file,
-            rate_per_minute=args.poisson_rate,
-            process_instance_func=process_instance,
-            timeout_seconds=8 * 60 * 60,  # 8 hour PER instance should be more than enough
-            max_retries=5,
-            max_concurrent_tasks=args.max_concurrent_tasks,
-        )
-    else:
-        logger.info(f"Using standard parallel evaluation with {args.eval_num_workers} workers")
+    if args.prebuild:
+        logger.info('Prebuilding runtime images for the evaluation...')
         run_evaluation(
             instances,
             metadata,
             output_file,
             args.eval_num_workers,
-            process_instance,
+            prebuild_runtime_for_instance,
             timeout_seconds=8 * 60 * 60,  # 8 hour PER instance should be more than enough
-            max_retries=5,
+            max_retries=2,
         )
+        logger.info(f'Prebuilt runtime images saved to {output_file}')
+
+    else:
+        if args.use_poisson:
+            logger.info(f"Using Poisson time distribution with rate {args.poisson_rate} tasks per minute")
+            run_evaluation_poisson(
+                instances,
+                metadata,
+                output_file,
+                rate_per_minute=args.poisson_rate,
+                process_instance_func=process_instance,
+                timeout_seconds=8 * 60 * 60,  # 8 hour PER instance should be more than enough
+                max_retries=5,
+                max_concurrent_tasks=args.max_concurrent_tasks,
+            )
+        else:
+            logger.info(f"Using standard parallel evaluation with {args.eval_num_workers} workers")
+            run_evaluation(
+                instances,
+                metadata,
+                output_file,
+                args.eval_num_workers,
+                process_instance,
+                timeout_seconds=8 * 60 * 60,  # 8 hour PER instance should be more than enough
+                max_retries=5,
+            )
 
 
 

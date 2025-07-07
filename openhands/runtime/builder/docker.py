@@ -76,6 +76,7 @@ class DockerRuntimeBuilder(RuntimeBuilder):
             If `use_local_cache` is True, it will attempt to use and update the build cache in a local directory.
             The `extra_build_args` parameter allows for passing additional Docker build arguments as needed.
         """
+        print(f'***DockerRuntimeBuilder: path: {path} tags: {tags}, platform: {platform}, use_local_cache: {use_local_cache}, extra_build_args: {extra_build_args}')
         self.docker_client = docker.from_env()
         version_info = self.docker_client.version()
         server_version = version_info.get('Version', '').split('+')[0].replace('-', '.')

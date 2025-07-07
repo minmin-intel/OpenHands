@@ -369,14 +369,7 @@ class DockerRuntime(ActionExecutionClient):
         )
 
         command = self.get_action_execution_server_startup_command()
-        # print(
-        #     f'Command to run in container: {command}'
-        # )
-
-        # print(
-        #     f'Starting container with name: {self.container_name},\nimage: {self.runtime_container_image},\ncommand: {command},\nnetwork_mode: {network_mode},\n ports: {port_mapping},\n environment: {environment},\n volumes: {volumes}, \nkwargs: {self.config.sandbox.docker_runtime_kwargs}'
-        # )
-
+        logger.info(f'Starting container with name: {self.container_name},\nimage: {self.runtime_container_image},\nports:{port_mapping}')
         try:
             if self.runtime_container_image is None:
                 raise ValueError('Runtime container image is not set')

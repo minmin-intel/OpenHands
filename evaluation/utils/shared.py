@@ -76,6 +76,9 @@ class EvalOutput(BaseModel):
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
 
+class BuildOutput(BaseModel):
+    instance_id: str
+    image_name: str
 
 class EvalException(Exception):
     pass
@@ -287,7 +290,7 @@ def prepare_dataset(
 
 
 def update_progress(
-    result: EvalOutput,
+    result: EvalOutput | BuildOutput,
     pbar: tqdm,
     output_fp: TextIO,
 ):
@@ -295,9 +298,8 @@ def update_progress(
     pbar.update(1)
     try:
         pbar.set_description(f'Instance {result.instance_id}')
-        # pbar.set_postfix_str(f'Test Result: {str(result.test_result)[:300]}...')
         logger.info(
-            f'Finished evaluation for instance {result.instance_id}: {str(result.test_result)[:300]}...\n'
+            f'Finished instance {result.instance_id}...\n'
         )
         output_fp.write(result.model_dump_json() + '\n')
         output_fp.flush()
