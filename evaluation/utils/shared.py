@@ -210,7 +210,7 @@ def make_metadata(
         else NoOpCondenserConfig(),
     )
     metadata_json = metadata.model_dump_json()
-    logger.info(f'Metadata: {metadata_json}')
+    # logger.info(f'Metadata: {metadata_json}')
     with open(os.path.join(eval_output_path, 'metadata.json'), 'w') as f:
         f.write(metadata_json)
 

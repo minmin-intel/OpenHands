@@ -40,47 +40,39 @@ def parse_history(history_file):
 def process_timestamps(history_dict):
     instance_times = {}
     for instance_id, events in history_dict.items():
-        # filter to get events whose source is "agent" AND action is not system
-        agent_events = [event for event in events if event.get('source') == 'agent' and event.get('action_or_observation_content') != 'system']
-        # sort agent events by id in ascending order
-        if not agent_events:
-            print(f"No agent events found for instance {instance_id}")
-            continue
-        agent_events.sort(key=lambda x: x['id'])
-        print(f"Agent events:\n{agent_events}")
-        # get timestamps
-        timestamps = [event['timestamp'] for event in agent_events if 'timestamp' in event]
-        if not timestamps:
-            print(f"No timestamps found for instance {instance_id}")
-            continue
-        print(f"Instance {instance_id} has {len(timestamps)//2} steps")
+        llm_finished_ids = [event["id"] for event in events if event.get('source') == 'agent' and event.get('action_or_observation') == 'action' and event.get('action_or_observation_content') != 'system']
+        llm_started_ids = [id-1 for id in llm_finished_ids]
+        runtime_finished_ids = [event["id"] for event in events if event.get('source') == 'agent' and event.get('action_or_observation') == 'observation']
+        runtime_started_ids = [id-1 for id in runtime_finished_ids]
+
+        llm_finished_timestamps = [event['timestamp'] for event in events if event['id'] in llm_finished_ids]
+        llm_started_timestamps = [event['timestamp'] for event in events if event['id'] in llm_started_ids]
+        runtime_finished_timestamps = [event['timestamp'] for event in events if event['id'] in runtime_finished_ids]
+        runtime_started_timestamps = [event['timestamp'] for event in events if event['id'] in runtime_started_ids]
+
+        print("llm_finished_ids:", llm_finished_ids)
+        print("llm_started_ids:", llm_started_ids)
+        print("runtime_finished_ids:", runtime_finished_ids)
+        print("runtime_started_ids:", runtime_started_ids)
+
         # timestamps are in str: 2025-07-01T11:11:53.775934
         # convert them so that we can calculate the time difference
-        timestamps = [datetime.fromisoformat(ts) for ts in timestamps]
-        if len(timestamps) < 2:
-            print(f"Not enough timestamps to calculate time difference for instance {instance_id}")
-            continue 
-        time_diffs = [(timestamps[i] - timestamps[i-1]).total_seconds() for i in range(1, len(timestamps))]
+        llm_finished_timestamps = [datetime.fromisoformat(ts) for ts in llm_finished_timestamps]
+        llm_started_timestamps = [datetime.fromisoformat(ts) for ts in llm_started_timestamps]
+        runtime_finished_timestamps = [datetime.fromisoformat(ts) for ts in runtime_finished_timestamps]
+        runtime_started_timestamps = [datetime.fromisoformat(ts) for ts in runtime_started_timestamps]
 
-        # calculate the time for last agent step
-        first_agent_event_id = agent_events[0]['id']
-        first_agent_event_timestamp = timestamps[0]
-        event_before_first_agent_id = first_agent_event_id - 1
-        event_before_first_agent = next((event for event in events if event['id'] == event_before_first_agent_id), None)
-        if event_before_first_agent:
-            event_before_first_agent_timestamp = datetime.fromisoformat(event_before_first_agent['timestamp'])
-            time_diffs.insert(0, (first_agent_event_timestamp - event_before_first_agent_timestamp).total_seconds())
+        assert len(llm_finished_timestamps) == len(llm_started_timestamps), "Mismatched LLM timestamps"
+        assert len(runtime_finished_timestamps) == len(runtime_started_timestamps), "Mismatched runtime timestamps"
+        assert len(llm_finished_timestamps) == len(runtime_finished_timestamps), "Mismatched LLM and runtime timestamps"
 
         llm_time = []
         runtime_time = []
-        for i, time_diff in enumerate(time_diffs):
-            if agent_events[i]['action_or_observation'] == 'action':
-                llm_time.append(time_diff)
-                print(f"Step {i+1} in instance {instance_id}: LLM - {time_diff} seconds")
-            else:
-                runtime_time.append(time_diff)
-                print(f"Step {i+1} in instance {instance_id}: Runtime - {time_diff} seconds")
-
+        
+        for i in range(len(llm_finished_timestamps)):
+            llm_time.append((llm_finished_timestamps[i] - llm_started_timestamps[i]).total_seconds())
+            runtime_time.append((runtime_finished_timestamps[i] - runtime_started_timestamps[i]).total_seconds())
+            print(f"Instance {instance_id} step {i+1}: LLM time: {llm_time[-1]} seconds, Runtime time: {runtime_time[-1]} seconds")
 
         #calculate the total time of the instance
         start_time_stamp = events[0]['timestamp']
@@ -89,7 +81,7 @@ def process_timestamps(history_dict):
         end_time = datetime.fromisoformat(end_time_stamp)
         total_time = (end_time - start_time).total_seconds()
         print(f"Total time for instance {instance_id}: {total_time} seconds")
-        print(f"Agent time for instance {instance_id}: {sum(time_diffs)} seconds")
+        print(f"Agent time for instance {instance_id}: {sum(llm_time)+sum(runtime_time)} seconds")
         instance_times[instance_id] = {
             'total_time': total_time,
             'llm_time': llm_time,
@@ -103,7 +95,7 @@ if __name__ == "__main__":
     EVAL_DIR = os.path.join(WORKDIR, "OpenHands/evaluation/evaluation_outputs/outputs/")
     TEST="princeton-nlp__SWE-bench_Lite-test/CodeActAgent"
     MODEL="Llama-3.3-70B-Instruct"
-    N=6
+    N=3
     OPENHANDS_VERSION="v0.44.0"
     postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1"
 

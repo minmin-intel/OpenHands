@@ -656,19 +656,21 @@ def prebuild_runtime_for_instance(
     )
 
 
-def get_prebulit_runtime_image(
+def get_prebuilt_runtime_image(
     instance: pd.Series,
     metadata: EvalMetadata,
 ) -> str:
     lookup_file = os.path.join(
-        metadata.eval_output_dir, 'prebuilt_images.jsonl'
+        metadata.details["prebuild_output_dir"], 'prebuilt_images.jsonl'
     )
     if not os.path.exists(lookup_file):
-        logger.warning(
+        # logger.warning(
+        #     f'Prebuilt images lookup file {lookup_file} does not exist. '
+        #     'No prebuilt image will be used.'
+        # )
+        raise FileNotFoundError(
             f'Prebuilt images lookup file {lookup_file} does not exist. '
-            'No prebuilt image will be used.'
         )
-        return None
     with open(lookup_file, 'r') as f:
         for line in f:
             entry = json.loads(line)
@@ -709,10 +711,11 @@ def process_instance(
     )
 
     # change file_storage_path
-    config.file_store_path = "/localdisk/minminho/openhands/trajectories/"
+    WORKDIR = os.getenv('WORKDIR', '/workspace')
+    config.file_store_path = f"{WORKDIR}/openhands/trajectories/"
 
     # get prebuilt runtime image if exists
-    prebuilt_image = get_prebulit_runtime_image(instance, metadata)
+    prebuilt_image = get_prebuilt_runtime_image(instance, metadata)
     if prebuilt_image:
         logger.info(
             f'Using prebuilt runtime image {prebuilt_image} for instance {instance.instance_id}'
@@ -795,7 +798,7 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str, filter_with: str, 
     elif filter_with == 'prebuilt_images':
         # Filter based on prebuilt images
         prebuilt_images_file = os.path.join(
-            metadata.eval_output_dir, 'prebuilt_images.jsonl'
+            metadata.details['prebuild_output_dir'], 'prebuilt_images.jsonl'
         )
         if os.path.exists(prebuilt_images_file):
             with open(prebuilt_images_file, 'r') as f:
@@ -805,13 +808,9 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str, filter_with: str, 
             )
             return dataset[dataset[filter_column].isin(prebuilt_images)]
         else:
-            logger.warning(
-                f'Prebuilt images file {prebuilt_images_file} does not exist. No filtering will be applied.'
+            raise FileNotFoundError(
+                f'Prebuilt images file {prebuilt_images_file} does not exist. '
             )
-            logger.warning(
-                'If you want to filter tasks based on prebuilt images, please run the prebuild step first.'
-            )
-            return dataset
     elif filter_with == 'skip_ids':
         skip_ids = os.environ.get('SKIP_IDS', '').split(',')
         if len(skip_ids) > 0:
@@ -889,6 +888,18 @@ def get_args():
         help='Type of data filtering to apply. Options are "config_toml", "prebuilt_images", or "skip_ids".',
     )
 
+    parser.add_argument(
+        '--prebuild_output_dir',
+        type=str,
+        default='prebuild_output',
+        help='Directory to save prebuilt_images.jsonl.'
+    )
+    parser.add_argument(
+        '--eval_n_limit',
+        type=int,
+        default=30,
+        help='Number of instances to evaluate. If -1, evaluate all instances.',
+    )
     args, _ = parser.parse_known_args()
     return args
 
@@ -946,6 +957,10 @@ if __name__ == '__main__':
         condenser_config=condenser_config,
     )
 
+    metadata.details["prebuild_output_dir"] = args.prebuild_output_dir
+
+    logger.info(f"Metadata prebuild output dir: {metadata.details['prebuild_output_dir']}")
+
     # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
     # so we don't need to manage file uploading to OpenHands's repo
     dataset = load_dataset(args.dataset, split=args.split)
@@ -953,7 +968,10 @@ if __name__ == '__main__':
     # Set the global dataset type based on dataset name
     set_dataset_type(args.dataset)
 
-    swe_bench_tests = filter_dataset(dataset.to_pandas(), 'instance_id', args.data_filter_type, metadata)
+    if args.prebuild:
+        swe_bench_tests = dataset.to_pandas()
+    else:
+        swe_bench_tests = filter_dataset(dataset.to_pandas(), 'instance_id', args.data_filter_type, metadata)
     logger.info(
         f'Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks'
     )
@@ -976,8 +994,9 @@ if __name__ == '__main__':
 
 
     # prepare_dataset will lookup instances that are already run
+    # and will sample eval_n_limit instances from the dataset
     if args.prebuild:
-        output_file = os.path.join(metadata.eval_output_dir, 'prebuilt_images.jsonl')
+        output_file = os.path.join(args.prebuild_output_dir, 'prebuilt_images.jsonl')
     else:
         output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
 

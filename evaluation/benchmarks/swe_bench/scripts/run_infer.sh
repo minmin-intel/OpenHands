@@ -16,6 +16,9 @@ N_RUNS=$9
 MODE=${10}
 POISSON_RATE=${11:-2.0}
 BASE_URL=${12:-"http://localhost:8000/v1"}
+PREBUILD=${13:-"false"}
+
+PREBUILD_OUTPUT_DIR="$WORKDIR/openhands/"
 
 
 if [ -z "$NUM_WORKERS" ]; then
@@ -113,9 +116,11 @@ function run_eval() {
     --max-iterations $MAX_ITER \
     --eval-num-workers $NUM_WORKERS \
     --eval-note $eval_note \
+    --eval_n_limit $EVAL_LIMIT \
     --dataset $DATASET \
     --split $SPLIT \
-    --mode $MODE"
+    --mode $MODE \
+    --prebuild_output_dir $PREBUILD_OUTPUT_DIR"
 
   # COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_benchmark.py \
   #   --agent-cls $AGENT \
@@ -140,10 +145,39 @@ function run_eval() {
   eval $COMMAND
 }
 
+
+function prebuild_images() {
+  echo "Prebuilding images for the evaluation..."
+  COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_benchmark.py \
+    --agent-cls $AGENT \
+    --model $MODEL \
+    --base-url $BASE_URL \
+    --max-iterations $MAX_ITER \
+    --eval-num-workers $NUM_WORKERS \
+    --eval-note $EVAL_NOTE \
+    --eval_n_limit $EVAL_LIMIT \
+    --dataset $DATASET \
+    --split $SPLIT \
+    --mode $MODE \
+    --prebuild_output_dir $PREBUILD_OUTPUT_DIR \
+    --prebuild"
+
+  eval $COMMAND
+}
+
 unset SANDBOX_ENV_GITHUB_TOKEN # prevent the agent from using the github token to push
 if [ -z "$N_RUNS" ]; then
   N_RUNS=1
   echo "N_RUNS not specified, use default $N_RUNS"
+fi
+
+# If prebuild is set to true, prebuild the images
+if [ "$PREBUILD" = "true" ]; then
+  echo "Prebuilding images..."
+  prebuild_images
+  # Exit after prebuilding images
+  echo "Prebuilding images done. Exiting."
+  exit 0
 fi
 
 # Skip runs if the run number is in the SKIP_RUNS list
