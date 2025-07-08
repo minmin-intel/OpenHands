@@ -120,7 +120,9 @@ function run_eval() {
     --dataset $DATASET \
     --split $SPLIT \
     --mode $MODE \
-    --prebuild_output_dir $PREBUILD_OUTPUT_DIR"
+    --prebuild_output_dir $PREBUILD_OUTPUT_DIR \
+    --use-poisson \
+    --poisson-rate $POISSON_RATE"
 
   # COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_benchmark.py \
   #   --agent-cls $AGENT \
