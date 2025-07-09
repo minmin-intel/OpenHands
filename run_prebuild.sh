@@ -1,9 +1,9 @@
 MODEL="openai/meta-llama/Llama-3.3-70B-Instruct"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
-EVAL_LIMIT=20
+EVAL_LIMIT=20 # the number of images to prebuild
 MAX_ITER=3
-NUM_WORKERS=$EVAL_LIMIT
+NUM_WORKERS=$EVAL_LIMIT # use multiple workers to speed up the prebuild process
 DATASET="princeton-nlp/SWE-bench_Lite"
 SPLIT="test"
 N_RUNS=1

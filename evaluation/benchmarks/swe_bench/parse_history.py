@@ -150,7 +150,7 @@ def get_runtime_startup_timestamps(log_folder, prebuilt_image_file):
     with open(prebuilt_image_file, 'r') as f:
         prebuilt_image_lookup = [json.loads(line) for line in f]  
 
-    print(prebuilt_image_lookup)
+    # print(prebuilt_image_lookup)
     # get all the lines that contain "Starting runtime with image:"
     # this is an example:
     # 2025-07-07 17:01:44,319 - INFO - [runtime 75b8c6a9-b76b-420a-b6c6-1b16016215db-c541749a066c53dd] Starting runtime with image: ghcr.io/all-hands-ai/runtime:oh_v0.44.0_lhxsocnmcgxny12c_h1icin3k4bvm8gej
@@ -174,10 +174,10 @@ def get_runtime_startup_timestamps(log_folder, prebuilt_image_file):
                 timestamp = parts[0].split(",")[0]  # Get the timestamp part before the comma
                 runtime_hash = parts[2].split(" ")[1]
                 image_name = parts[2].split(" ")[-1]
-                print(f"Instance {instance_id} startup info: timestamp={timestamp}, runtime_hash={runtime_hash}, image_name={image_name}")
+                # print(f"Instance {instance_id} startup info: timestamp={timestamp}, runtime_hash={runtime_hash}, image_name={image_name}")
                 # check if image_name mathces any of the prebuilt images
                 prebuilt_image = next((img["image_name"] for img in prebuilt_image_lookup if img['instance_id'] == instance_id), None)
-                print(f"Prebuilt image for instance {instance_id}: {prebuilt_image}")
+                # print(f"Prebuilt image for instance {instance_id}: {prebuilt_image}")
                 if not prebuilt_image:
                     mismatched.append(instance_id)
                     continue
@@ -189,7 +189,7 @@ def get_runtime_startup_timestamps(log_folder, prebuilt_image_file):
                 # print(startup_info[instance_id])
         
     print("Missing startup timestamps for instances:", missing_startup)
-    print("Mismatched instances:", len(mismatched))
+    print("Number of Mismatched instances:", len(mismatched))
 
     # now piece together all the logs and get all the lines like this:
     # 2025-07-07 17:02:25,694 - INFO - [runtime 412cb379-9a93-422e-b7b3-b259fdba027f-23399499cf53dbde] Runtime is ready.
@@ -220,7 +220,6 @@ def get_runtime_startup_timestamps(log_folder, prebuilt_image_file):
             print(f"Runtime ready timestamp not found for instance {instance_id} with runtime hash {runtime_hash}")
             startup_info[instance_id]['runtime_ready_timestamp'] = None
 
-    print("Missing runtime ready timestamps for instances:", missing_startup)
     return startup_info, startup_time_list
 
 def parse_llm_server_log(log_file):
@@ -297,38 +296,87 @@ def plot_runtime_startup_stats(startup_time_list, output_dir):
     plt.savefig(output_file)
     plt.close()
 
+def calculate_metrics(instance_times, startup_time_list):
+    import numpy as np
+    # median of startup_time_list
+    startup_time_median = np.median(startup_time_list)
+    print(f"Median startup time: {startup_time_median:.2f} seconds")
+
+    # median of llm times
+    llm_times = []
+    for instance_id, data in instance_times.items():
+        llm_times.extend(data['llm_time'])
+    llm_time_median = np.median(llm_times)
+    print(f"Median LLM latency: {llm_time_median:.2f} seconds")
+
+    # median number of LLM calls
+    num_llm_calls = [data['num_llm_calls'] for data in instance_times.values()]
+    num_llm_calls_median = np.median(num_llm_calls)
+    print(f"Median number of LLM calls: {num_llm_calls_median}")
+
+    # throughput
+    total_instances = len(instance_times)
+    median_e2e_latency = startup_time_median + llm_time_median * num_llm_calls_median
+    print(f"Total instances: {total_instances}")
+    print(f"Median end-to-end latency: {median_e2e_latency:.2f} seconds")
+    throughput = total_instances / median_e2e_latency if median_e2e_latency > 0 else 0
+    print(f"Throughput: {throughput:.3f} instances/second")
+
+
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Parse SWE-bench history and calculate metrics.")
+    parser.add_argument('--dataset', type=str, required=True, default='SWE-bench_Lite', help='name of dataset')
+    parser.add_argument('--split', type=str, required=True, default='test', help='Data split (e.g. test, dev)')
+    parser.add_argument('--max_iter', type=int, default=100, help='Maximum number of iterations for the agent')
+    parser.add_argument('--model', type=str, help='Model name to use for the agent')
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
+    args = parse_args()
     WORKDIR= os.getenv("WORKDIR", ".")
     EVAL_DIR = os.path.join(WORKDIR, "OpenHands/evaluation/evaluation_outputs/outputs/")
-    TEST="princeton-nlp__SWE-bench_Lite-test/CodeActAgent"
-    MODEL="Llama-3.3-70B-Instruct"
-    N=100
+    TEST=f"princeton-nlp__{args.dataset}-{args.split}/CodeActAgent"
+    MODEL=args.model.split("/")[-1]  # get the last part of the model name
+    N=args.max_iter
     OPENHANDS_VERSION="v0.44.0"
     postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1"
 
+    print(f"Parsing agent history logs...")
     history_file = os.path.join(EVAL_DIR, f"{postfix}/output.jsonl")
     history, llm_response = parse_history(history_file)
     with open(os.path.join(EVAL_DIR, f"{postfix}/llm_response.json"), 'w') as f:
         json.dump(llm_response, f, indent=4)
-    # print(len(history))
+
+    print(f"Parsed {len(history)} instances from: {history_file}")
+    print('Parsing timestamps from history...')
     instance_times = process_timestamps(history, history_file)
     with open(os.path.join(EVAL_DIR, f"{postfix}/instance_times.json"), 'w') as f:
         json.dump(instance_times, f, indent=4)
+    print(f"Parsed timestamps for {len(instance_times)} instances.")
+    print(f"Saving instance times to: {os.path.join(EVAL_DIR, f'{postfix}/instance_times.json')}")
 
     ##=========== plot LLM stats =====================
-    # output_dir = os.path.join(EVAL_DIR, f"{postfix}/plots")
-    # os.makedirs(output_dir, exist_ok=True)
-    # plot_llm_time_stats(instance_times, output_dir)
+    print("Plotting LLM latency stats...")
+    output_dir = os.path.join(EVAL_DIR, f"{postfix}/plots")
+    os.makedirs(output_dir, exist_ok=True)
+    plot_llm_time_stats(instance_times, output_dir)
 
     # #=========== runtime related analysis =====================
-    # log_folder = os.path.join(EVAL_DIR, f"{postfix}/infer_logs")
-    # prebuilt_image_file =f"{WORKDIR}/openhands/prebuilt_images.jsonl"
-    # startup_info, startup_time_list = get_runtime_startup_timestamps(log_folder, prebuilt_image_file)
-    # with open(os.path.join(EVAL_DIR, f"{postfix}/runtime_startup_info.json"), 'w') as f:
-    #     json.dump(startup_info, f, indent=4)
+    print("Parsing runtime containers startup timestamps...")
+    log_folder = os.path.join(EVAL_DIR, f"{postfix}/infer_logs")
+    prebuilt_image_file =f"{WORKDIR}/openhands/prebuilt_images.jsonl"
+    startup_info, startup_time_list = get_runtime_startup_timestamps(log_folder, prebuilt_image_file)
+    with open(os.path.join(EVAL_DIR, f"{postfix}/runtime_startup_info.json"), 'w') as f:
+        json.dump(startup_info, f, indent=4)
+    print(f"Parsed startup info for {len(startup_info)} instances.")
+    print(f"Saving startup info to: {os.path.join(EVAL_DIR, f'{postfix}/runtime_startup_info.json')}")
 
-    # output_dir = os.path.join(EVAL_DIR, f"{postfix}/plots")
-    # os.makedirs(output_dir, exist_ok=True)
-    # plot_runtime_startup_stats(startup_time_list, output_dir)
+    ## ================plot startup times histogram =========================
+    print("Plotting histogram for runtime startup times...")
+    plot_runtime_startup_stats(startup_time_list, output_dir)
+
+    ## ================ calculate metrics =========================
+    print("Calculating metrics...")
+    calculate_metrics(instance_times, startup_time_list)

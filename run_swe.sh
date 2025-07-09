@@ -2,9 +2,9 @@
 MODEL="openai/meta-llama/Llama-3.3-70B-Instruct"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
-EVAL_LIMIT=100
-MAX_ITER=100
-NUM_WORKERS=4
+EVAL_LIMIT=100 # the number of instances to launch
+MAX_ITER=100 # the max number of agent steps to run
+NUM_WORKERS=4 # this var is not used when benchmarking with Poisson distribution
 DATASET="princeton-nlp/SWE-bench_Lite"
 SPLIT="test"
 N_RUNS=1

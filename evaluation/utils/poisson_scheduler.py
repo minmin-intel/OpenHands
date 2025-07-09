@@ -177,8 +177,11 @@ def run_evaluation_poisson(
     # For a Poisson process, the time between events follows an exponential distribution
     # with parameter λ (rate_per_second)
     def generate_intervals(count):
-        return np.random.exponential(scale=1.0/rate_per_second, size=count)
-    
+        seed_value = 42
+        rng = np.random.default_rng(seed=seed_value)
+        logger.info(f'Generating {count} Poisson intervals with rate {rate_per_second} per second, using seed {seed_value}.')
+        return rng.exponential(scale=1.0/rate_per_second, size=count)
+
     total_instances = len(dataset)
     pbar = tqdm(total=total_instances, desc='Instances processed')
     output_fp = open(output_file, 'a')
@@ -205,14 +208,9 @@ def run_evaluation_poisson(
             try:
                 # Set up logging for this instance with proper synchronization
                 with logger_setup_lock:
-                    # Use the same reset_logger_for_multiprocessing function that the regular
-                    # evaluation uses. This ensures consistency and properly isolates logs.
                     if metadata and metadata.eval_output_dir:
                         log_dir = os.path.join(metadata.eval_output_dir, 'infer_logs')
                         os.makedirs(log_dir, exist_ok=True)
-                        
-                        # This is the key fix: use the same logger reset mechanism as regular evaluation
-                        # This function is specifically designed to properly isolate logs per instance
                         reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
                         
                         # Track the instance we're currently processing in thread-local storage
@@ -267,7 +265,9 @@ def run_evaluation_poisson(
     try:
         # Generate time intervals for launching tasks
         intervals = generate_intervals(total_instances - 1)  # -1 because first task starts immediately
-        
+        logger.info(f"Generated intervals: {intervals}")
+        logger.info(f"Mean of generated intervals: {np.mean(intervals):.2f} seconds")
+
         # Create a lock for synchronizing logger setup between threads
         logger_setup_lock = threading.Lock()
         

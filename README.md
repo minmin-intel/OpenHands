@@ -32,6 +32,11 @@
   <hr>
 </div>
 
+## This is a fork from All-Hands AI's OpenHands repo. 
+## We adapted it for performance benchmark of coding agent systems.
+## Please refer to instructions [here](evaluation/benchmarks/swe_bench/Agent_perf_benchmark.md) on how to run the benchmark.
+
+
 Welcome to OpenHands (formerly OpenDevin), a platform for software development agents powered by AI.
 
 OpenHands agents can do anything a human developer can: modify code, run commands, browse the web,

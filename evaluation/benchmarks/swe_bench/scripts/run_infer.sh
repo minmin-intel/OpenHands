@@ -124,19 +124,6 @@ function run_eval() {
     --use-poisson \
     --poisson-rate $POISSON_RATE"
 
-  # COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_swe_benchmark.py \
-  #   --agent-cls $AGENT \
-  #   --model $MODEL \
-  #   --base-url $BASE_URL \
-  #   --max-iterations $MAX_ITER \
-  #   --eval-num-workers $NUM_WORKERS \
-  #   --eval-note $eval_note \
-  #   --dataset $DATASET \
-  #   --split $SPLIT \
-  #   --mode $MODE \
-  #   --use-poisson \
-  #   --poisson-rate $POISSON_RATE"
-
 
   if [ -n "$EVAL_LIMIT" ]; then
     echo "EVAL_LIMIT: $EVAL_LIMIT"
