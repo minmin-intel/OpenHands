@@ -69,10 +69,10 @@ def process_timestamps(history_dict, history_file):
         runtime_finished_timestamps = [event['timestamp'] for event in events if event['id'] in runtime_finished_ids]
         runtime_started_timestamps = [event['timestamp'] for event in events if event['id'] in runtime_started_ids]
 
-        # print("llm_finished_ids:", llm_finished_ids)
-        # print("llm_started_ids:", llm_started_ids)
-        # print("runtime_finished_ids:", runtime_finished_ids)
-        # print("runtime_started_ids:", runtime_started_ids)
+        print("llm_finished_ids:", llm_finished_ids)
+        print("llm_started_ids:", llm_started_ids)
+        print("runtime_finished_ids:", runtime_finished_ids)
+        print("runtime_started_ids:", runtime_started_ids)
 
         # timestamps are in str: 2025-07-01T11:11:53.775934
         # convert them so that we can calculate the time difference
@@ -81,9 +81,12 @@ def process_timestamps(history_dict, history_file):
         runtime_finished_timestamps = [datetime.fromisoformat(ts) for ts in runtime_finished_timestamps]
         runtime_started_timestamps = [datetime.fromisoformat(ts) for ts in runtime_started_timestamps]
 
-        assert len(llm_finished_timestamps) == len(llm_started_timestamps), "Mismatched LLM timestamps"
-        assert len(runtime_finished_timestamps) == len(runtime_started_timestamps), "Mismatched runtime timestamps"
-        # assert len(llm_finished_timestamps) == len(runtime_finished_timestamps), "Mismatched LLM and runtime timestamps"
+        if len(llm_finished_timestamps) != len(llm_started_timestamps):
+            print(f"Warning: Mismatched LLM finished and started timestamps for instance {instance_id}.")
+            continue
+        if len(runtime_finished_timestamps) != len(runtime_started_timestamps):
+            print(f"Warning: Mismatched runtime finished and started timestamps for instance {instance_id}.")
+            continue
 
         llm_time = []
         runtime_time = []
@@ -225,6 +228,102 @@ def get_runtime_startup_timestamps(log_folder, prebuilt_image_file):
 def parse_llm_server_log(log_file):
     pass
 
+def calculate_stats_llm_usage(llm_response):
+    import numpy as np
+    llm_usage_stats = {}
+    for instance_id, responses in llm_response.items():
+        completion_tokens = []
+        prompt_tokens = []
+        total_tokens = []
+        new_tokens = []
+        for response in responses:
+            usage = response.get('usage', {})
+            completion_tokens.append(usage.get('completion_tokens', 0))
+            prompt_tokens.append(usage.get('prompt_tokens', 0))
+            total_tokens.append(usage.get('total_tokens', 0))
+
+        for i in range(1, len(completion_tokens)):
+            new_tokens.append(prompt_tokens[i] - total_tokens[i - 1])
+
+        llm_usage_stats[instance_id] = {
+            'completion_tokens': completion_tokens,
+            'prompt_tokens': prompt_tokens,
+            'total_tokens': total_tokens,
+            'first_tokens': prompt_tokens[0] if prompt_tokens else 0,
+            'new_tokens': new_tokens
+        }
+    # calculate median and max of all instances
+    # for key in ['completion_tokens', 'prompt_tokens', 'total_tokens', 'new_tokens']:
+    #     values = [stats[key] for stats in llm_usage_stats.values()]
+    #     llm_usage_stats['median_' + key] = np.median(values) if values else 0
+    #     llm_usage_stats['max_' + key] = np.max(values) if values else 0
+    
+    # combine all the tokens into a single list for overall stats
+    all_completion_tokens = []
+    all_prompt_tokens = []
+    all_total_tokens = []
+    all_new_tokens = []
+    all_first_tokens = []
+    for stats in llm_usage_stats.values():
+        all_completion_tokens.extend(stats['completion_tokens'])
+        all_prompt_tokens.extend(stats['prompt_tokens'])
+        all_total_tokens.extend(stats['total_tokens'])
+        all_new_tokens.extend(stats['new_tokens'])
+        all_first_tokens.append(stats['first_tokens'])
+
+    median_completion_tokens = np.median(all_completion_tokens) if all_completion_tokens else 0
+    median_prompt_tokens = np.median(all_prompt_tokens) if all_prompt_tokens else 0
+    median_total_tokens = np.median(all_total_tokens) if all_total_tokens else 0
+    median_new_tokens = np.median(all_new_tokens) if all_new_tokens else 0
+    median_first_tokens = np.median(all_first_tokens) if all_first_tokens else 0
+
+    max_completion_tokens = np.max(all_completion_tokens) if all_completion_tokens else 0
+    max_prompt_tokens = np.max(all_prompt_tokens) if all_prompt_tokens else 0
+    max_total_tokens = np.max(all_total_tokens) if all_total_tokens else 0
+    max_new_tokens = np.max(all_new_tokens) if all_new_tokens else 0
+    max_first_tokens = np.max(all_first_tokens) if all_first_tokens else 0
+
+
+    print("LLM Usage Stats:")
+    print(f"Median Completion Tokens: {median_completion_tokens}")
+    print(f"Median Prompt Tokens: {median_prompt_tokens}")
+    print(f"Median Total Tokens: {median_total_tokens}")
+    print(f"Median First Tokens: {median_first_tokens}")
+    print(f"Median New Tokens: {median_new_tokens}")
+    
+    print(f"Max Completion Tokens: {max_completion_tokens}")
+    print(f"Max Prompt Tokens: {max_prompt_tokens}")
+    print(f"Max Total Tokens: {max_total_tokens}")
+    print(f"Max First Tokens: {max_first_tokens}")
+    print(f"Max New Tokens: {max_new_tokens}")
+    return llm_usage_stats
+
+def get_history_stats(history_dict):
+    user_message_lengths = []
+    system_message_lengths = []
+    for instance_id, events in history_dict.items():
+        for event in events:
+            if event.get('source') == 'agent' and event.get('action_or_observation_content') == 'system':
+                system_message = event.get('message', '')
+                system_message_lengths.append(len(system_message))
+            if event.get('source') == 'user' and event.get('action_or_observation_content') == 'message':
+                user_message = event.get('message', '')
+                user_message_lengths.append(len(user_message))
+        # print(f"Instance {instance_id} - System Message: {system_message}, User Message: {user_message}")
+    
+    # Calculate statistics
+    total_len = [sys_msg_len + user_msg_len for sys_msg_len, user_msg_len in zip(system_message_lengths, user_message_lengths)]
+    avg_total_len = sum(total_len) / len(total_len) if total_len else 0
+    avg_system_len = sum(system_message_lengths) / len(system_message_lengths) if system_message_lengths else 0
+    avg_user_len = sum(user_message_lengths) / len(user_message_lengths) if user_message_lengths else 0
+    print(f"Average System Message Length: {avg_system_len}")
+    print(f"Average User Message Length: {avg_user_len}")
+    print(f"Average Total Message Length: {avg_total_len}")
+    avg_sys_percentage = (avg_system_len/ avg_total_len) * 100 if avg_total_len > 0 else 0
+    avg_user_percentage = (avg_user_len / avg_total_len) * 100 if avg_user_len > 0 else 0
+    print(f"Average System Message Percentage: {avg_sys_percentage:.2f}%")
+    print(f"Average User Message Percentage: {avg_user_percentage:.2f}%")
+                
 
 def plot_llm_time_stats(instance_times, output_dir):
     import matplotlib.pyplot as plt
@@ -380,3 +479,14 @@ if __name__ == "__main__":
     ## ================ calculate metrics =========================
     print("Calculating metrics...")
     calculate_metrics(instance_times, startup_time_list)
+
+    ## ================ get LLM usage stats =========================
+    print("Calculating LLM usage stats...")
+    llm_usage_stats = calculate_stats_llm_usage(llm_response)
+    with open(os.path.join(EVAL_DIR, f"{postfix}/llm_usage_stats.json"), 'w') as f:
+        json.dump(llm_usage_stats, f, indent=4)
+    print(f"LLM usage stats saved to: {os.path.join(EVAL_DIR, f'{postfix}/llm_usage_stats.json')}")
+
+    ## ================ get history stats =========================
+    print("Calculating history stats...")
+    get_history_stats(history)

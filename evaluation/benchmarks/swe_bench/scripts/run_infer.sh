@@ -122,6 +122,7 @@ function run_eval() {
     --mode $MODE \
     --prebuild_output_dir $PREBUILD_OUTPUT_DIR \
     --use-poisson \
+    --max-concurrent-tasks $NUM_WORKERS \
     --poisson-rate $POISSON_RATE"
 
 
