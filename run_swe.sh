@@ -1,10 +1,10 @@
 # MODEL_CONFIG="llm.eval_gaudi"
-MODEL="openai/meta-llama/Llama-3.3-70B-Instruct"
+MODEL="openai/mistralai/Devstral-Small-2507"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
-EVAL_LIMIT=100 # the number of instances to launch
+EVAL_LIMIT=32 # the number of instances to launch
 MAX_ITER=100 # the max number of agent steps to run
-NUM_WORKERS=10 # if Poisson distribution, then this is max-concurrent-tasks
+NUM_WORKERS=32 # if Poisson distribution, then this is max-concurrent-tasks
 DATASET="princeton-nlp/SWE-bench_Lite"
 SPLIT="test"
 N_RUNS=1

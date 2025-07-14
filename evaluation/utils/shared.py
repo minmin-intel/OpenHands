@@ -239,6 +239,13 @@ def prepare_dataset(
             f'\nOutput file {output_file} already exists. Loaded {len(finished_ids)} finished instances.'
         )
 
+    # remove finished instances from the dataset
+    if finished_ids:
+        dataset = dataset[~dataset[id_column].isin(finished_ids)]
+        logger.info(
+            f'Removed {len(finished_ids)} finished instances from the dataset. Remaining instances: {len(dataset)}'
+        )
+        
     if eval_ids:
         eval_ids_converted = [dataset[id_column].dtype.type(id) for id in eval_ids]
         dataset = dataset[dataset[id_column].isin(eval_ids_converted)]
