@@ -751,18 +751,46 @@ def process_instance(
         # if fatal error, throw EvalError to trigger re-run
         if is_fatal_evaluation_error(state.last_error):
             raise EvalException('Fatal error detected: ' + state.last_error)
+        
+        # ======= THIS IS SWE-Bench specific =======
+        # Get git patch
+        if DATASET_TYPE == 'SWE-bench-Live':
+            from evaluation.benchmarks.swe_bench.live_utils import (
+                complete_runtime as complete_runtime_fn,
+            )
+        else:
+            complete_runtime_fn = complete_runtime
+        return_val = complete_runtime_fn(runtime, instance)
+        git_patch = return_val['git_patch']
+        logger.info(
+            f'Got git diff for instance {instance.instance_id}:\n--------\n{git_patch}\n--------'
+        )
 
     finally:
         runtime.close()
     # ==========================================
 
+    test_result = {
+        'git_patch': git_patch,
+    }
+
+    # If you are working on some simpler benchmark that only evaluates the final model output (e.g., in a MessageAction)
+    # You can simply get the LAST `MessageAction` from the returned `state.history` and parse it for evaluation.
+    if state is None:
+        raise ValueError('State should not be None.')
+
+    # NOTE: this is NO LONGER the event stream, but an agent history that includes delegate agent's events
     histories = [event_to_dict(event) for event in state.history]
+    metrics = get_metrics(state)
+
     output = EvalOutput(
         instance_id=instance.instance_id,
         instruction=message_action.content,
         instance=instance.to_dict(),  # SWE Bench specific
+        test_result=test_result,
         metadata=metadata,
         history=histories,
+        metrics=metrics,
         error=state.last_error if state and state.last_error else None,
     )
     return output

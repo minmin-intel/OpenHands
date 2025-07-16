@@ -1,4 +1,4 @@
-MODEL="meta-llama/Llama-3.3-70B-Instruct"
+MODEL="mistralai/Devstral-Small-2507"
 MAX_ITER=100 # the max number of agent steps to run
 DATASET="SWE-bench_Lite"
 SPLIT="test"

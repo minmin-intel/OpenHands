@@ -17,6 +17,7 @@ def parse_history(history_file):
 
     history_dict = {}
     llm_response = {}
+    llm_latency_outliers = []
     for instance in history:
         instance_events = []
         instance_llm_response = []
@@ -43,18 +44,38 @@ def parse_history(history_file):
             try:
                 model_response = event['tool_call_metadata']['model_response']
                 if model_response['id'] not in model_response_id_list:
+                    # get the time stamps of this event and the previous event
+                    previous_event = next((e for e in instance_history if e['id'] == event['id'] - 1), None)
+                    if previous_event:
+                        previous_timestamp = previous_event.get('timestamp', None)
+                        current_timestamp = event.get('timestamp', None)
+                        if previous_timestamp and current_timestamp:
+                            time_diff = (datetime.fromisoformat(current_timestamp) - datetime.fromisoformat(previous_timestamp)).total_seconds()
+                    else:
+                        model_response['latency'] = None
                     instance_llm_response.append({
                         'id': model_response['id'],
                         'created': model_response.get('created', None),
                         'usage': model_response.get('usage', {}),
+                        'event_id': event.get('id', 'unknown'),  # Link back to the event id
+                        'latency': time_diff
                     })
                     model_response_id_list.append(model_response['id'])
+                    if time_diff > 2000:
+                        llm_latency_outliers.append({
+                            'instance_id': instance_id,
+                            'event_id': event.get('id', 'unknown'),
+                            'llm_latency': time_diff,
+                            'model_response': model_response,
+                            'previous_event_message': previous_event.get('message', ''),
+                            'current_event_message': event.get('message', '')
+                        })
             except KeyError:
                 # If 'tool_call_metadata' or 'model_response' is not present, skip this part
                 pass
         history_dict[instance_id] = instance_events
         llm_response[instance_id] = instance_llm_response
-    return history_dict, llm_response
+    return history_dict, llm_response, llm_latency_outliers
 
 def process_timestamps(history_dict, history_file):
     instance_times = {}
@@ -228,7 +249,7 @@ def get_runtime_startup_timestamps(log_folder, prebuilt_image_file):
 def parse_llm_server_log(log_file):
     pass
 
-def calculate_stats_llm_usage(llm_response):
+def calculate_stats_llm_usage(llm_response, output_dir=None, model_name=None):
     import numpy as np
     llm_usage_stats = {}
     for instance_id, responses in llm_response.items():
@@ -290,12 +311,63 @@ def calculate_stats_llm_usage(llm_response):
     print(f"Median Total Tokens: {median_total_tokens}")
     print(f"Median First Tokens: {median_first_tokens}")
     print(f"Median New Tokens: {median_new_tokens}")
-    
+
+    print(f"Mean Completion Tokens: {np.mean(all_completion_tokens) if all_completion_tokens else 0}")
+    print(f"Mean Prompt Tokens: {np.mean(all_prompt_tokens) if all_prompt_tokens else 0}")
+    print(f"Mean Total Tokens: {np.mean(all_total_tokens) if all_total_tokens else 0}")
+    print(f"Mean First Tokens: {np.mean(all_first_tokens) if all_first_tokens else 0}")     
+    print(f"Mean New Tokens: {np.mean(all_new_tokens) if all_new_tokens else 0}")
+
+    print(f"Min Completion Tokens: {min(all_completion_tokens) if all_completion_tokens else 0}")
+    print(f"Min Prompt Tokens: {min(all_prompt_tokens) if all_prompt_tokens else 0}")
+    print(f"Min Total Tokens: {min(all_total_tokens) if all_total_tokens else 0}")
+    print(f"Min First Tokens: {min(all_first_tokens) if all_first_tokens else 0}")
+    print(f"Min New Tokens: {min(all_new_tokens) if all_new_tokens else 0}")
+
     print(f"Max Completion Tokens: {max_completion_tokens}")
     print(f"Max Prompt Tokens: {max_prompt_tokens}")
     print(f"Max Total Tokens: {max_total_tokens}")
     print(f"Max First Tokens: {max_first_tokens}")
     print(f"Max New Tokens: {max_new_tokens}")
+
+    print(f"STD Completion Tokens: {np.std(all_completion_tokens) if all_completion_tokens else 0}")
+    print(f"STD Prompt Tokens: {np.std(all_prompt_tokens) if all_prompt_tokens else 0}")
+    print(f"STD Total Tokens: {np.std(all_total_tokens) if all_total_tokens else 0}")
+    print(f"STD First Tokens: {np.std(all_first_tokens) if all_first_tokens else 0}")
+    print(f"STD New Tokens: {np.std(all_new_tokens) if all_new_tokens else 0}")
+
+    # plot histograms for each token type
+    import matplotlib.pyplot as plt
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        
+        for key, values in zip(['completion_tokens', 'prompt_tokens'], [all_completion_tokens, all_prompt_tokens]):
+            plt.figure(figsize=(10, 6))
+            plt.hist(values, bins=20, alpha=0.7, color='blue')
+            plt.title(f'{model_name}\nLLM {key.replace("_", " ").title()} Histogram')
+            plt.xlabel(key.replace("_", " ").title())
+            plt.ylabel('Frequency')
+            plt.grid()
+            output_file = os.path.join(output_dir, f'llm_{key}_histogram.png')
+            plt.savefig(output_file)
+            plt.close()
+    
+    # plot latency vs. completion tokens and prompt tokens and total tokens
+    if output_dir:
+        for key in ['completion_tokens', 'prompt_tokens', 'total_tokens']:
+            plt.figure(figsize=(10, 6))
+            for instance_id, responses in llm_response.items():
+                latencies = [response.get('latency', 0) for response in responses]
+                tokens = [response['usage'].get(key, 0) for response in responses]
+                plt.scatter(tokens, latencies, alpha=0.5)
+            plt.title(f'{model_name}\nLLM Latency vs {key.replace("_", " ").title()}')
+            plt.xlabel(key.replace("_", " ").title())
+            plt.ylabel('LLM Latency (seconds)')
+            output_file = os.path.join(output_dir, f'llm_latency_vs_{key}.png')
+            plt.savefig(output_file)
+            plt.close()
+
+
     return llm_usage_stats
 
 def get_history_stats(history_dict):
@@ -325,7 +397,7 @@ def get_history_stats(history_dict):
     print(f"Average User Message Percentage: {avg_user_percentage:.2f}%")
                 
 
-def plot_llm_time_stats(instance_times, output_dir):
+def plot_llm_time_stats(instance_times, output_dir, model_name=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -344,7 +416,7 @@ def plot_llm_time_stats(instance_times, output_dir):
     output_file = os.path.join(output_dir, "llm_time_vs_start_time.png")
     plt.figure(figsize=(10, 6))
     plt.scatter(llm_start_times, llm_times, alpha=0.7)
-    plt.title('LLM latency vs. LLM request timestamp')
+    plt.title(f'{model_name}\nLLM latency vs. LLM request timestamp')
     plt.xlabel('LLM request timestamp')
     plt.ylabel('LLM latency (seconds)')
     plt.grid()
@@ -355,7 +427,7 @@ def plot_llm_time_stats(instance_times, output_dir):
     # y axis is each instance id
     # x axis is the llm start timestamps
     output_file = os.path.join(output_dir, "llm_start_timestamps.png")
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 8))
     n = 1
     for instance_id, data in instance_times.items():
         llm_start_times = [datetime.fromisoformat(ts).timestamp() for ts in data['llm_start_timestamps']]
@@ -365,7 +437,8 @@ def plot_llm_time_stats(instance_times, output_dir):
     plt.yticks(range(1, n), list(instance_times.keys()), rotation=45)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.title('LLM requests')
+    plt.title(f'{model_name}\nLLM requests')
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # Add more space at the top for the title
     plt.xlabel('LLM request timestamp')
     plt.ylabel('Instance ID')
     plt.grid()
@@ -375,7 +448,7 @@ def plot_llm_time_stats(instance_times, output_dir):
     output_file = os.path.join(output_dir, "llm_latency_histogram.png")
     plt.figure(figsize=(10, 6))
     plt.hist(llm_times, bins=20, alpha=0.7, color='blue')
-    plt.title('LLM Latency Histogram')
+    plt.title(f'{model_name}\nLLM Latency Histogram')
     plt.xlabel('LLM Latency (seconds)')
     plt.ylabel('Frequency')
     plt.grid()
@@ -421,6 +494,25 @@ def calculate_metrics(instance_times, startup_time_list):
     throughput = total_instances / median_e2e_latency if median_e2e_latency > 0 else 0
     print(f"Throughput: {throughput:.3f} instances/second")
 
+def plot_llm_latency_outliers(llm_latency_outliers, output_dir, model_name=None):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 6))
+    # plot latency vs. completion tokens and prompt tokens
+    for key in ['completion_tokens', 'prompt_tokens', 'total_tokens']:
+        plt.subplot(1, 3, ['completion_tokens', 'prompt_tokens', 'total_tokens'].index(key) + 1)
+        plt.title(f'LLM Latency vs. {key}')
+        plt.xlabel(key)
+        plt.ylabel('LLM Latency (seconds)')
+        for outlier in llm_latency_outliers:
+            latency = outlier['llm_latency']
+            plt.scatter(outlier["model_response"]["usage"][key], latency, alpha=0.5)
+    plt.tight_layout()
+    plt.suptitle(f'LLM Latency Outliers - {model_name}')
+    plt.subplots_adjust(top=0.85)  # Adjust the top margin to make space
+    plt.savefig(os.path.join(output_dir, "llm_latency_outliers.png"))
+    plt.close()
+
+
 
 def parse_args():
     import argparse
@@ -440,13 +532,15 @@ if __name__ == "__main__":
     MODEL=args.model.split("/")[-1]  # get the last part of the model name
     N=args.max_iter
     OPENHANDS_VERSION="v0.44.0"
-    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1"
+    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1_run1"
 
     print(f"Parsing agent history logs...")
     history_file = os.path.join(EVAL_DIR, f"{postfix}/output.jsonl")
-    history, llm_response = parse_history(history_file)
+    history, llm_response, llm_latency_outliers = parse_history(history_file)
     with open(os.path.join(EVAL_DIR, f"{postfix}/llm_response.json"), 'w') as f:
         json.dump(llm_response, f, indent=4)
+    with open(os.path.join(EVAL_DIR, f"{postfix}/llm_latency_outliers.json"), 'w') as f:
+        json.dump(llm_latency_outliers, f, indent=4)
 
     print(f"Parsed {len(history)} instances from: {history_file}")
     print('Parsing timestamps from history...')
@@ -460,7 +554,9 @@ if __name__ == "__main__":
     print("Plotting LLM latency stats...")
     output_dir = os.path.join(EVAL_DIR, f"{postfix}/plots")
     os.makedirs(output_dir, exist_ok=True)
-    plot_llm_time_stats(instance_times, output_dir)
+    plot_llm_time_stats(instance_times, output_dir, model_name=MODEL)
+
+    plot_llm_latency_outliers(llm_latency_outliers, output_dir, model_name=MODEL)
 
     # #=========== runtime related analysis =====================
     print("Parsing runtime containers startup timestamps...")
@@ -482,7 +578,7 @@ if __name__ == "__main__":
 
     ## ================ get LLM usage stats =========================
     print("Calculating LLM usage stats...")
-    llm_usage_stats = calculate_stats_llm_usage(llm_response)
+    llm_usage_stats = calculate_stats_llm_usage(llm_response, output_dir=output_dir, model_name=MODEL)
     with open(os.path.join(EVAL_DIR, f"{postfix}/llm_usage_stats.json"), 'w') as f:
         json.dump(llm_usage_stats, f, indent=4)
     print(f"LLM usage stats saved to: {os.path.join(EVAL_DIR, f'{postfix}/llm_usage_stats.json')}")
