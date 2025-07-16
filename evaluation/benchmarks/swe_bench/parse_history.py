@@ -90,10 +90,10 @@ def process_timestamps(history_dict, history_file):
         runtime_finished_timestamps = [event['timestamp'] for event in events if event['id'] in runtime_finished_ids]
         runtime_started_timestamps = [event['timestamp'] for event in events if event['id'] in runtime_started_ids]
 
-        print("llm_finished_ids:", llm_finished_ids)
-        print("llm_started_ids:", llm_started_ids)
-        print("runtime_finished_ids:", runtime_finished_ids)
-        print("runtime_started_ids:", runtime_started_ids)
+        # print("llm_finished_ids:", llm_finished_ids)
+        # print("llm_started_ids:", llm_started_ids)
+        # print("runtime_finished_ids:", runtime_finished_ids)
+        # print("runtime_started_ids:", runtime_started_ids)
 
         # timestamps are in str: 2025-07-01T11:11:53.775934
         # convert them so that we can calculate the time difference
@@ -468,7 +468,7 @@ def plot_runtime_startup_stats(startup_time_list, output_dir):
     plt.savefig(output_file)
     plt.close()
 
-def calculate_metrics(instance_times, startup_time_list):
+def calculate_metrics(instance_times, startup_time_list, llm_usage_stats):
     import numpy as np
     # median of startup_time_list
     startup_time_median = np.median(startup_time_list)
@@ -493,6 +493,37 @@ def calculate_metrics(instance_times, startup_time_list):
     print(f"Median end-to-end latency: {median_e2e_latency:.2f} seconds")
     throughput = total_instances / median_e2e_latency if median_e2e_latency > 0 else 0
     print(f"Throughput: {throughput:.3f} instances/second")
+
+    # get the earliest and latest timestamps
+    all_start_timestamps = []
+    all_end_timestamps = []
+    for instance_id, data in instance_times.items():
+        all_start_timestamps.append(datetime.fromisoformat(data['agent_start_timestamp']))
+        all_end_timestamps.append(datetime.fromisoformat(data['agent_end_timestamp']))
+    earliest_start = min(all_start_timestamps)
+    latest_end = max(all_end_timestamps)
+    total_time = (latest_end - earliest_start).total_seconds()
+    print(f"Total time: {total_time:.2f} seconds")
+
+    # the total number of llm calls
+    total_llm_calls = sum(num_llm_calls)
+    print(f"Total number of LLM calls: {total_llm_calls}")
+    llm_reqs_per_second = total_llm_calls / total_time if total_time > 0 else 0
+    print(f"LLM requests per second: {llm_reqs_per_second:.3f}")
+
+    # total number of prompt tokens
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for instance_id, stats in llm_usage_stats.items():
+        total_prompt_tokens += sum(stats['prompt_tokens'])
+        total_completion_tokens += sum(stats['completion_tokens'])
+    output_tokens_per_second = total_completion_tokens / total_time if total_time > 0 else 0
+    print(f"Total prompt tokens: {total_prompt_tokens}")
+    print(f"Total completion tokens: {total_completion_tokens}")
+    print(f"Output tokens per second: {output_tokens_per_second:.3f}")
+    print(f"Total tokens per second: {(total_prompt_tokens + total_completion_tokens) / total_time if total_time > 0 else 0:.3f}")
+    
+
 
 def plot_llm_latency_outliers(llm_latency_outliers, output_dir, model_name=None):
     import matplotlib.pyplot as plt
@@ -532,9 +563,9 @@ if __name__ == "__main__":
     MODEL=args.model.split("/")[-1]  # get the last part of the model name
     N=args.max_iter
     OPENHANDS_VERSION="v0.44.0"
-    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1_run1"
+    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1"
 
-    print(f"Parsing agent history logs...")
+    print("===============Parsing agent history logs=====================")
     history_file = os.path.join(EVAL_DIR, f"{postfix}/output.jsonl")
     history, llm_response, llm_latency_outliers = parse_history(history_file)
     with open(os.path.join(EVAL_DIR, f"{postfix}/llm_response.json"), 'w') as f:
@@ -543,7 +574,7 @@ if __name__ == "__main__":
         json.dump(llm_latency_outliers, f, indent=4)
 
     print(f"Parsed {len(history)} instances from: {history_file}")
-    print('Parsing timestamps from history...')
+    print('================Parsing timestamps from history====================')
     instance_times = process_timestamps(history, history_file)
     with open(os.path.join(EVAL_DIR, f"{postfix}/instance_times.json"), 'w') as f:
         json.dump(instance_times, f, indent=4)
@@ -551,7 +582,7 @@ if __name__ == "__main__":
     print(f"Saving instance times to: {os.path.join(EVAL_DIR, f'{postfix}/instance_times.json')}")
 
     ##=========== plot LLM stats =====================
-    print("Plotting LLM latency stats...")
+    print("================Plotting LLM latency stats======================")
     output_dir = os.path.join(EVAL_DIR, f"{postfix}/plots")
     os.makedirs(output_dir, exist_ok=True)
     plot_llm_time_stats(instance_times, output_dir, model_name=MODEL)
@@ -559,7 +590,7 @@ if __name__ == "__main__":
     plot_llm_latency_outliers(llm_latency_outliers, output_dir, model_name=MODEL)
 
     # #=========== runtime related analysis =====================
-    print("Parsing runtime containers startup timestamps...")
+    print("================Parsing runtime containers startup timestamps========================")
     log_folder = os.path.join(EVAL_DIR, f"{postfix}/infer_logs")
     prebuilt_image_file =f"{WORKDIR}/openhands/prebuilt_images.jsonl"
     startup_info, startup_time_list = get_runtime_startup_timestamps(log_folder, prebuilt_image_file)
@@ -569,20 +600,21 @@ if __name__ == "__main__":
     print(f"Saving startup info to: {os.path.join(EVAL_DIR, f'{postfix}/runtime_startup_info.json')}")
 
     ## ================plot startup times histogram =========================
-    print("Plotting histogram for runtime startup times...")
+    print("================Plotting histogram for runtime startup times=====================")
     plot_runtime_startup_stats(startup_time_list, output_dir)
 
-    ## ================ calculate metrics =========================
-    print("Calculating metrics...")
-    calculate_metrics(instance_times, startup_time_list)
-
     ## ================ get LLM usage stats =========================
-    print("Calculating LLM usage stats...")
+    print("================Calculating LLM usage stats=======================")
     llm_usage_stats = calculate_stats_llm_usage(llm_response, output_dir=output_dir, model_name=MODEL)
     with open(os.path.join(EVAL_DIR, f"{postfix}/llm_usage_stats.json"), 'w') as f:
         json.dump(llm_usage_stats, f, indent=4)
     print(f"LLM usage stats saved to: {os.path.join(EVAL_DIR, f'{postfix}/llm_usage_stats.json')}")
 
-    ## ================ get history stats =========================
-    print("Calculating history stats...")
-    get_history_stats(history)
+    ## ================ calculate metrics =========================
+    print("==================Calculating metrics========================")
+    calculate_metrics(instance_times, startup_time_list, llm_usage_stats)
+
+
+    # ## ================ get history stats =========================
+    # print("Calculating history stats...")
+    # get_history_stats(history)
