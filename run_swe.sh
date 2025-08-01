@@ -1,5 +1,6 @@
-# MODEL_CONFIG="llm.eval_gaudi"
-MODEL="openai/mistralai/Devstral-Small-2507"
+#!/bin/bash
+# MODEL="openai/mistralai/Devstral-Small-2507"
+MODEL="openai/meta-llama/Llama-3.3-70B-Instruct"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
 EVAL_LIMIT=32 # the number of instances to launch

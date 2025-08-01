@@ -271,7 +271,8 @@ def calculate_stats_llm_usage(llm_response, output_dir=None, model_name=None):
             'prompt_tokens': prompt_tokens,
             'total_tokens': total_tokens,
             'first_tokens': prompt_tokens[0] if prompt_tokens else 0,
-            'new_tokens': new_tokens
+            'new_tokens': new_tokens,
+            'cache_tokens': total_tokens[:-1]
         }
     # calculate median and max of all instances
     # for key in ['completion_tokens', 'prompt_tokens', 'total_tokens', 'new_tokens']:
@@ -285,11 +286,13 @@ def calculate_stats_llm_usage(llm_response, output_dir=None, model_name=None):
     all_total_tokens = []
     all_new_tokens = []
     all_first_tokens = []
+    all_cache_tokens = []
     for stats in llm_usage_stats.values():
         all_completion_tokens.extend(stats['completion_tokens'])
         all_prompt_tokens.extend(stats['prompt_tokens'])
         all_total_tokens.extend(stats['total_tokens'])
         all_new_tokens.extend(stats['new_tokens'])
+        all_cache_tokens.extend(stats['cache_tokens'])
         all_first_tokens.append(stats['first_tokens'])
 
     median_completion_tokens = np.median(all_completion_tokens) if all_completion_tokens else 0
@@ -297,61 +300,81 @@ def calculate_stats_llm_usage(llm_response, output_dir=None, model_name=None):
     median_total_tokens = np.median(all_total_tokens) if all_total_tokens else 0
     median_new_tokens = np.median(all_new_tokens) if all_new_tokens else 0
     median_first_tokens = np.median(all_first_tokens) if all_first_tokens else 0
+    median_cache_tokens = np.median(all_cache_tokens) if all_cache_tokens else 0
 
     max_completion_tokens = np.max(all_completion_tokens) if all_completion_tokens else 0
     max_prompt_tokens = np.max(all_prompt_tokens) if all_prompt_tokens else 0
     max_total_tokens = np.max(all_total_tokens) if all_total_tokens else 0
     max_new_tokens = np.max(all_new_tokens) if all_new_tokens else 0
     max_first_tokens = np.max(all_first_tokens) if all_first_tokens else 0
+    max_cache_tokens = np.max(all_cache_tokens) if all_cache_tokens else 0
 
 
     print("LLM Usage Stats:")
     print(f"Median Completion Tokens: {median_completion_tokens}")
     print(f"Median Prompt Tokens: {median_prompt_tokens}")
     print(f"Median Total Tokens: {median_total_tokens}")
-    print(f"Median First Tokens: {median_first_tokens}")
-    print(f"Median New Tokens: {median_new_tokens}")
+    print(f"Median Cache Tokens: {median_cache_tokens}")
+    # print(f"Median First Tokens: {median_first_tokens}")
+    # print(f"Median New Tokens: {median_new_tokens}")
+    
 
-    print(f"Mean Completion Tokens: {np.mean(all_completion_tokens) if all_completion_tokens else 0}")
-    print(f"Mean Prompt Tokens: {np.mean(all_prompt_tokens) if all_prompt_tokens else 0}")
-    print(f"Mean Total Tokens: {np.mean(all_total_tokens) if all_total_tokens else 0}")
-    print(f"Mean First Tokens: {np.mean(all_first_tokens) if all_first_tokens else 0}")     
-    print(f"Mean New Tokens: {np.mean(all_new_tokens) if all_new_tokens else 0}")
+    # print(f"Mean Completion Tokens: {np.mean(all_completion_tokens) if all_completion_tokens else 0}")
+    # print(f"Mean Prompt Tokens: {np.mean(all_prompt_tokens) if all_prompt_tokens else 0}")
+    # print(f"Mean Total Tokens: {np.mean(all_total_tokens) if all_total_tokens else 0}")
+    # print(f"Mean Cache Tokens: {np.mean(all_cache_tokens) if all_cache_tokens else 0}")
+    # print(f"Mean First Tokens: {np.mean(all_first_tokens) if all_first_tokens else 0}")     
+    # print(f"Mean New Tokens: {np.mean(all_new_tokens) if all_new_tokens else 0}")
 
-    print(f"Min Completion Tokens: {min(all_completion_tokens) if all_completion_tokens else 0}")
-    print(f"Min Prompt Tokens: {min(all_prompt_tokens) if all_prompt_tokens else 0}")
-    print(f"Min Total Tokens: {min(all_total_tokens) if all_total_tokens else 0}")
-    print(f"Min First Tokens: {min(all_first_tokens) if all_first_tokens else 0}")
-    print(f"Min New Tokens: {min(all_new_tokens) if all_new_tokens else 0}")
+    # print(f"Min Completion Tokens: {min(all_completion_tokens) if all_completion_tokens else 0}")
+    # print(f"Min Prompt Tokens: {min(all_prompt_tokens) if all_prompt_tokens else 0}")
+    # print(f"Min Total Tokens: {min(all_total_tokens) if all_total_tokens else 0}")
+    # print(f"Min Cache Tokens: {min(all_cache_tokens) if all_cache_tokens else 0}")
+    # print(f"Min First Tokens: {min(all_first_tokens) if all_first_tokens else 0}")
+    # print(f"Min New Tokens: {min(all_new_tokens) if all_new_tokens else 0}")
 
     print(f"Max Completion Tokens: {max_completion_tokens}")
     print(f"Max Prompt Tokens: {max_prompt_tokens}")
     print(f"Max Total Tokens: {max_total_tokens}")
-    print(f"Max First Tokens: {max_first_tokens}")
-    print(f"Max New Tokens: {max_new_tokens}")
+    print(f"Max Cache Tokens: {max_cache_tokens}")
+    # print(f"Max First Tokens: {max_first_tokens}")
+    # print(f"Max New Tokens: {max_new_tokens}")
 
-    print(f"STD Completion Tokens: {np.std(all_completion_tokens) if all_completion_tokens else 0}")
-    print(f"STD Prompt Tokens: {np.std(all_prompt_tokens) if all_prompt_tokens else 0}")
-    print(f"STD Total Tokens: {np.std(all_total_tokens) if all_total_tokens else 0}")
-    print(f"STD First Tokens: {np.std(all_first_tokens) if all_first_tokens else 0}")
-    print(f"STD New Tokens: {np.std(all_new_tokens) if all_new_tokens else 0}")
+    # print(f"STD Completion Tokens: {np.std(all_completion_tokens) if all_completion_tokens else 0}")
+    # print(f"STD Prompt Tokens: {np.std(all_prompt_tokens) if all_prompt_tokens else 0}")
+    # print(f"STD Total Tokens: {np.std(all_total_tokens) if all_total_tokens else 0}")
+    # print(f"STD Cache Tokens: {np.std(all_cache_tokens) if all_cache_tokens else 0}")
+    # print(f"STD First Tokens: {np.std(all_first_tokens) if all_first_tokens else 0}")
+    # print(f"STD New Tokens: {np.std(all_new_tokens) if all_new_tokens else 0}")
 
     # plot histograms for each token type
     import matplotlib.pyplot as plt
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        
-        for key, values in zip(['completion_tokens', 'prompt_tokens'], [all_completion_tokens, all_prompt_tokens]):
-            plt.figure(figsize=(10, 6))
-            plt.hist(values, bins=20, alpha=0.7, color='blue')
-            plt.title(f'{model_name}\nLLM {key.replace("_", " ").title()} Histogram')
-            plt.xlabel(key.replace("_", " ").title())
+
+        plt.figure(figsize=(15, 5))
+        # plt.title(f'{model_name}')
+        for i in range(4):
+            plt.subplot(1, 4, i + 1)
+            if i == 0:
+                plt.hist(all_prompt_tokens, bins=20, color='blue', alpha=0.7)
+                plt.title('Prompt Tokens')
+            elif i == 1:
+                plt.hist(all_completion_tokens, bins=20, color='green', alpha=0.7)
+                plt.title('Completion Tokens')
+            elif i == 2:
+                plt.hist(all_total_tokens, bins=20, color='orange', alpha=0.7)
+                plt.title('Total Tokens')
+            else:
+                plt.hist(all_cache_tokens, bins=20, color='red', alpha=0.7)
+                plt.title('Cached Tokens')
+            plt.xlabel('Number of Tokens')
             plt.ylabel('Frequency')
-            plt.grid()
-            output_file = os.path.join(output_dir, f'llm_{key}_histogram.png')
-            plt.savefig(output_file)
-            plt.close()
-    
+        plt.tight_layout()
+        output_file = os.path.join(output_dir, f'{model_name}_tokens_histogram.png')
+        plt.savefig(output_file)
+        plt.close()
+
     # plot latency vs. completion tokens and prompt tokens and total tokens
     if output_dir:
         for key in ['completion_tokens', 'prompt_tokens', 'total_tokens']:
@@ -563,7 +586,7 @@ if __name__ == "__main__":
     MODEL=args.model.split("/")[-1]  # get the last part of the model name
     N=args.max_iter
     OPENHANDS_VERSION="v0.44.0"
-    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1"
+    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1_run1"
 
     print("===============Parsing agent history logs=====================")
     history_file = os.path.join(EVAL_DIR, f"{postfix}/output.jsonl")
