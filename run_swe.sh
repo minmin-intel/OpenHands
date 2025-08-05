@@ -3,7 +3,7 @@
 MODEL="openai/meta-llama/Llama-3.3-70B-Instruct"
 COMMIT_HASH=HEAD
 AGENT=CodeActAgent
-EVAL_LIMIT=32 # the number of instances to launch
+EVAL_LIMIT=30 # the number of instances to launch
 MAX_ITER=100 # the max number of agent steps to run
 NUM_WORKERS=32 # if Poisson distribution, then this is max-concurrent-tasks
 DATASET="princeton-nlp/SWE-bench_Lite"

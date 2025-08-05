@@ -942,10 +942,10 @@ if __name__ == '__main__':
     #     llm_config.modify_params = False
 
     llm_config = LLMConfig(
-        model=args.model,
+        model= "openrouter/openrouter/horizon-beta",#"deepseek/deepseek-reasoner", #args.model,
         temperature=0.3, # arbitrary value
-        api_key="empty", # test local llms served by vllm
-        base_url=args.base_url,
+        api_key=os.environ.get('OPENROUTER_API_KEY', 'empty'), #"empty", # test local llms served by vllm
+        base_url="https://openrouter.ai/api/v1", #args.base_url,
         log_completions=True,  # Always log completions for evaluation
         modify_params=False,  # Do not modify params for evaluation
     )

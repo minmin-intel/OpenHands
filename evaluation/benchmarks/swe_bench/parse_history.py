@@ -257,11 +257,15 @@ def calculate_stats_llm_usage(llm_response, output_dir=None, model_name=None):
         prompt_tokens = []
         total_tokens = []
         new_tokens = []
+        cached_tokens =[]
         for response in responses:
             usage = response.get('usage', {})
             completion_tokens.append(usage.get('completion_tokens', 0))
             prompt_tokens.append(usage.get('prompt_tokens', 0))
             total_tokens.append(usage.get('total_tokens', 0))
+            cached_token = usage.get('prompt_tokens_details').get('cached_tokens', None) if usage.get('prompt_tokens_details') else None
+            if cached_token is not None:
+                cached_tokens.append(cached_token)
 
         for i in range(1, len(completion_tokens)):
             new_tokens.append(prompt_tokens[i] - total_tokens[i - 1])
@@ -272,8 +276,11 @@ def calculate_stats_llm_usage(llm_response, output_dir=None, model_name=None):
             'total_tokens': total_tokens,
             'first_tokens': prompt_tokens[0] if prompt_tokens else 0,
             'new_tokens': new_tokens,
-            'cache_tokens': total_tokens[:-1]
         }
+        if cached_tokens:
+            llm_usage_stats[instance_id]['cache_tokens'] = cached_tokens
+        else:
+            llm_usage_stats[instance_id]['cache_tokens'] = [0] + total_tokens[:-1]
     # calculate median and max of all instances
     # for key in ['completion_tokens', 'prompt_tokens', 'total_tokens', 'new_tokens']:
     #     values = [stats[key] for stats in llm_usage_stats.values()]
@@ -586,7 +593,7 @@ if __name__ == "__main__":
     MODEL=args.model.split("/")[-1]  # get the last part of the model name
     N=args.max_iter
     OPENHANDS_VERSION="v0.44.0"
-    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1_run1"
+    postfix = f"{TEST}/{MODEL}_maxiter_{N}_N_{OPENHANDS_VERSION}-no-hint-run_1"
 
     print("===============Parsing agent history logs=====================")
     history_file = os.path.join(EVAL_DIR, f"{postfix}/output.jsonl")
